@@ -56,12 +56,26 @@ def decode_execution_providers(execution_providers: list) -> list:
 # Initialize frame processors at startup
 def initialize_frame_processors():
     global frame_processors
+    print("Initializing frame processors...")
+    
+    # Set global settings
     modules.globals.keep_fps = True
     modules.globals.keep_audio = True
     modules.globals.many_faces = False
     modules.globals.mouth_mask = False
     modules.globals.nsfw_filter = False
-    frame_processors = get_frame_processors_modules(['face_swapper'])
+    
+    # Get available frame processors
+    available_processors = get_frame_processors_modules([])
+    print(f"Available frame processors: {[p.__name__ for p in available_processors]}")
+    
+    # Initialize face swapper
+    try:
+        frame_processors = get_frame_processors_modules(['face_swapper'])
+        print(f"Successfully initialized frame processors: {[p.__name__ for p in frame_processors]}")
+    except Exception as e:
+        print(f"Error initializing frame processors: {str(e)}")
+        frame_processors = []
 
 @app.route('/')
 def index():
@@ -162,7 +176,12 @@ def handle_update_settings(settings):
     
     # Update frame processors
     global frame_processors
-    frame_processors = get_frame_processors_modules(settings.get('frame_processors', ['face_swapper']))
+    try:
+        frame_processors = get_frame_processors_modules(settings.get('frame_processors', ['face_swapper']))
+        print(f"Updated frame processors: {[p.__name__ for p in frame_processors]}")
+    except Exception as e:
+        print(f"Error updating frame processors: {str(e)}")
+        frame_processors = []
 
 if __name__ == '__main__':
     args = parse_args()
