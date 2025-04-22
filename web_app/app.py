@@ -168,7 +168,7 @@ def swap_faces():
         'result': result_base64
     })
 
-@app.route('/process_video', methods=['POST'])
+@app.route('/process_video', methods=['GET', 'POST'])
 def process_video_route():
     global source_image, target_video, face_swapper
     

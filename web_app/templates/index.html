@@ -347,7 +347,12 @@
             progressBarInner.style.width = '0%';
             progressMessage.textContent = 'Starting...';
 
-            const eventSource = new EventSource('/process_video');
+            // Get the current URL and construct the EventSource URL
+            const currentUrl = window.location.href;
+            const baseUrl = currentUrl.endsWith('/') ? currentUrl.slice(0, -1) : currentUrl;
+            const eventSourceUrl = `${baseUrl}/process_video`;
+
+            const eventSource = new EventSource(eventSourceUrl);
             let videoData = null;
 
             eventSource.onmessage = function (event) {
