@@ -270,7 +270,8 @@ def process_video_route():
                 'total_chunks': total_chunks,
                 'processing_time': time.time() - start_time,
                 'frame_count': frame_count,
-                'fps': fps
+                'fps': fps,
+                'message': f'Starting transfer of {total_chunks} chunks'
             }) + '\n'
             
             # Send video data in chunks
@@ -287,6 +288,9 @@ def process_video_route():
                     'message': f'Transferring video data ({current_chunk}/{total_chunks})',
                     'video_chunk': chunk
                 }) + '\n'
+                
+                # Flush the response to ensure data is sent
+                yield ''
             
             # Send completion message
             yield json.dumps({

@@ -360,6 +360,11 @@
 
             eventSource.onmessage = function (event) {
                 try {
+                    // Skip empty messages (flushes)
+                    if (!event.data.trim()) {
+                        return;
+                    }
+
                     const data = JSON.parse(event.data);
                     console.log('Received data:', data);
 
@@ -374,6 +379,7 @@
                     if (data.progress !== undefined) {
                         progressBarInner.style.width = data.progress + '%';
                         progressMessage.textContent = data.message;
+                        console.log('Progress:', data.progress, data.message);
                     }
 
                     if (data.stage === 'transfer') {
@@ -389,7 +395,7 @@
                         if (data.video_chunk) {
                             videoData += data.video_chunk;
                             receivedChunks++;
-                            console.log(`Received chunk ${receivedChunks}/${totalChunks}`);
+                            console.log(`Received chunk ${receivedChunks}/${totalChunks}, current data length: ${videoData.length}`);
 
                             if (receivedChunks === totalChunks) {
                                 console.log('All chunks received, creating video...');
@@ -436,8 +442,19 @@
                     resultVideo.style.display = 'block';
                     resultVideo.controls = true;
 
-                    progressBarInner.style.width = '100%';
-                    progressMessage.textContent = 'Processing completed!';
+                    // Add event listeners for video loading
+                    resultVideo.onloadeddata = function () {
+                        console.log('Video loaded successfully');
+                        progressBarInner.style.width = '100%';
+                        progressMessage.textContent = 'Processing completed!';
+                    };
+
+                    resultVideo.onerror = function (error) {
+                        console.error('Error loading video:', error);
+                        progressBar.style.display = 'none';
+                        progressMessage.textContent = '';
+                        alert('Error loading video: ' + error.message);
+                    };
 
                     console.log(`Processing completed in ${processingTime.toFixed(2)} seconds`);
                     console.log(`Processed ${frameCount} frames at ${fps} FPS`);
