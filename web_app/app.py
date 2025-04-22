@@ -1,9 +1,21 @@
 import sys
 import os
 
-# Add the parent directory to the Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add the project root to the Python path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
+print(f"Python path: {sys.path}")
+print(f"Project root: {project_root}")
+
+# Import core modules first
+import modules.core as core
+import modules.globals
+import modules.metadata
+from modules.processors.frame.core import get_frame_processors_modules
+from modules.utilities import normalize_output_path
+
+# Import web-specific modules
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
 import cv2
@@ -11,17 +23,8 @@ import numpy as np
 import base64
 import io
 from PIL import Image
-import modules.globals
-from modules.processors.frame.core import get_frame_processors_modules
 import argparse
 import onnxruntime
-
-# Initialize globals without UI dependencies
-modules.globals.keep_fps = True
-modules.globals.keep_audio = True
-modules.globals.many_faces = False
-modules.globals.mouth_mask = False
-modules.globals.nsfw_filter = False
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
@@ -72,12 +75,31 @@ def initialize_frame_processors():
     }
     modules.globals.frame_processors = ['face_swapper']
     
+    # Set default paths (these will be updated when images are uploaded)
+    modules.globals.source_path = 'temp_source.jpg'
+    modules.globals.target_path = 'temp_target.jpg'
+    modules.globals.output_path = 'temp_output.jpg'
+    
+    # Initialize other required globals
+    modules.globals.map_faces = False
+    modules.globals.simple_map = {
+        'source_faces': [],
+        'target_embeddings': []
+    }
+    modules.globals.souce_target_map = []
+    
     # Get available frame processors
-    available_processors = get_frame_processors_modules([])
-    print(f"Available frame processors: {[p.__name__ for p in available_processors]}")
+    print("Checking available frame processors...")
+    try:
+        available_processors = get_frame_processors_modules([])
+        print(f"Available frame processors: {[p.__name__ for p in available_processors]}")
+    except Exception as e:
+        print(f"Error getting available processors: {str(e)}")
     
     # Initialize face swapper
+    print("Initializing face swapper...")
     try:
+        # Initialize the frame processors
         frame_processors = get_frame_processors_modules(['face_swapper'])
         print(f"Successfully initialized frame processors: {[p.__name__ for p in frame_processors]}")
     except Exception as e:
@@ -101,6 +123,10 @@ def upload_source():
     # Read and process the image
     img = Image.open(file.stream)
     source_image = np.array(img)
+    
+    # Save the image to the source path
+    cv2.imwrite(modules.globals.source_path, cv2.cvtColor(source_image, cv2.COLOR_RGB2BGR))
+    
     return jsonify({'success': True})
 
 @app.route('/upload_target', methods=['POST'])
@@ -116,6 +142,10 @@ def upload_target():
     # Read and process the image
     img = Image.open(file.stream)
     target_image = np.array(img)
+    
+    # Save the image to the target path
+    cv2.imwrite(modules.globals.target_path, cv2.cvtColor(target_image, cv2.COLOR_RGB2BGR))
+    
     return jsonify({'success': True})
 
 @app.route('/swap_faces', methods=['POST'])
