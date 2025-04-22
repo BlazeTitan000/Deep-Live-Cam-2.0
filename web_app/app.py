@@ -36,7 +36,7 @@ import json
 
 # Set ONNX runtime execution providers to use CUDA only
 onnxruntime.set_default_logger_severity(3)  # Reduce logging
-providers = ['CUDAExecutionProvider']  # Use CUDA only
+providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']  # Use CUDA with CPU fallback
 session_options = onnxruntime.SessionOptions()
 session_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
 session_options.intra_op_num_threads = 1
@@ -48,23 +48,41 @@ os.environ['OMP_NUM_THREADS'] = '1'  # Single thread for better CUDA performance
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 os.environ['CUDA_LAUNCH_BLOCKING'] = '0'  # Enable asynchronous execution
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # Allow GPU memory growth
+os.environ['CUDA_CACHE_DISABLE'] = '0'  # Enable CUDA cache
+os.environ['CUDA_CACHE_PATH'] = '/tmp/cuda_cache'  # Set cache path
 
 # Set execution providers in globals with optimized settings
-modules.globals.execution_providers = ['CUDAExecutionProvider']
+modules.globals.execution_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
 modules.globals.execution_threads = 1  # Single thread for CUDA
 modules.globals.execution_provider_options = {
     'CUDAExecutionProvider': {
         'device_id': '0',
         'arena_extend_strategy': 'kNextPowerOfTwo',
-        'gpu_mem_limit': str(40 * 1024 * 1024 * 1024),  # 40GB limit to leave some memory for system
+        'gpu_mem_limit': str(40 * 1024 * 1024 * 1024),  # 40GB limit
         'cudnn_conv_algo_search': 'EXHAUSTIVE',
         'do_copy_in_default_stream': '1',
         'cudnn_conv_use_max_workspace': '1',
-        'enable_cuda_graph': '1',  # Enable CUDA graphs for better performance
-        'tunable_op_enable': '1',  # Enable tunable operations
-        'tunable_op_tuning_enable': '1'  # Enable operation tuning
+        'enable_cuda_graph': '1',
+        'tunable_op_enable': '1',
+        'tunable_op_tuning_enable': '1',
+        'tunable_op_max_tuning_duration_ms': '1000',
+        'use_ep_level_unified_stream': '1',
+        'enable_skip_layer_norm_strict_mode': '1',
+        'prefer_nhwc': '1',
+        'cudnn_conv1d_pad_to_nc1d': '1',
+        'gpu_external_alloc': '1',
+        'gpu_external_free': '1',
+        'gpu_external_empty_cache': '1',
+        'has_user_compute_stream': '1'
+    },
+    'CPUExecutionProvider': {
+        'num_threads': '1',
+        'arena_extend_strategy': 'kNextPowerOfTwo'
     }
 }
+
+# Create CUDA cache directory
+os.makedirs('/tmp/cuda_cache', exist_ok=True)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
@@ -170,21 +188,34 @@ def swap_faces():
         logging.error("Face swapper not initialized for face swap")
         return jsonify({'error': 'Face swapper not initialized'}), 500
     
-    logging.info("Starting face swap process")
-    # Process the target image with face swapping
-    result_image = process_image(source_image, target_image)
-    logging.info("Face swap completed successfully")
-    
-    # Convert the result to base64 with high quality
-    result_pil = Image.fromarray(result_image)
-    buffered = io.BytesIO()
-    result_pil.save(buffered, format="JPEG", quality=95)
-    result_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-    
-    return jsonify({
-        'success': True,
-        'result': result_base64
-    })
+    try:
+        start_time = time.time()
+        
+        # Get source face with optimized settings
+        source_face = get_one_face(source_image)
+        if source_face is None:
+            return jsonify({'error': 'No face detected in source image'}), 400
+        
+        # Process the image with face swapping
+        result_image = process_image(source_face, target_image)
+        
+        # Convert the result to base64 with optimized settings
+        result_pil = Image.fromarray(result_image)
+        buffered = io.BytesIO()
+        result_pil.save(buffered, format="JPEG", quality=95, optimize=True)
+        result_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        
+        processing_time = time.time() - start_time
+        
+        return jsonify({
+            'success': True,
+            'result': result_base64,
+            'processing_time': processing_time
+        })
+        
+    except Exception as e:
+        logging.error(f"Error during face swap: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Error processing image: {str(e)}'}), 500
 
 @app.route('/process_video', methods=['GET', 'POST'])
 def process_video_route():
