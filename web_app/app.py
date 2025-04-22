@@ -221,11 +221,13 @@ def process_video_route():
                 if frame_count % 10 == 0:
                     progress = int((frame_count / total_frames) * 33)
                     yield json.dumps({'progress': progress, 'stage': 'extracting', 'message': f'Extracted {frame_count}/{total_frames} frames'}) + '\n'
+                    yield ''  # Flush the response
                 
             cap.release()
             
             # Process frames with face swapping
             yield json.dumps({'progress': 33, 'stage': 'processing', 'message': 'Processing frames...'}) + '\n'
+            yield ''  # Flush the response
             
             processed_frames = []
             for i, frame_path in enumerate(frame_paths):
@@ -236,9 +238,12 @@ def process_video_route():
                 if i % 10 == 0:
                     progress = 33 + int((i / len(frame_paths)) * 33)
                     yield json.dumps({'progress': progress, 'stage': 'processing', 'message': f'Processed {i+1}/{len(frame_paths)} frames'}) + '\n'
+                    yield ''  # Flush the response
             
             # Create output video
             yield json.dumps({'progress': 66, 'stage': 'creating', 'message': 'Creating output video...'}) + '\n'
+            yield ''  # Flush the response
+            
             output_path = os.path.join(temp_dir, 'output.mp4')
             
             # Use the first processed frame to get dimensions
@@ -251,6 +256,7 @@ def process_video_route():
                 if i % 10 == 0:
                     progress = 66 + int((i / len(processed_frames)) * 33)
                     yield json.dumps({'progress': progress, 'stage': 'creating', 'message': f'Writing frame {i+1}/{len(processed_frames)}'}) + '\n'
+                    yield ''  # Flush the response
                 
             out.release()
             
@@ -271,8 +277,10 @@ def process_video_route():
                 'processing_time': time.time() - start_time,
                 'frame_count': frame_count,
                 'fps': fps,
-                'message': f'Starting transfer of {total_chunks} chunks'
+                'message': f'Starting transfer of {total_chunks} chunks',
+                'progress': 90
             }) + '\n'
+            yield ''  # Flush the response
             
             # Send video data in chunks
             for i in range(0, len(video_base64), chunk_size):
@@ -288,9 +296,7 @@ def process_video_route():
                     'message': f'Transferring video data ({current_chunk}/{total_chunks})',
                     'video_chunk': chunk
                 }) + '\n'
-                
-                # Flush the response to ensure data is sent
-                yield ''
+                yield ''  # Flush the response
             
             # Send completion message
             yield json.dumps({
@@ -299,10 +305,12 @@ def process_video_route():
                 'stage': 'complete',
                 'message': 'Processing completed'
             }) + '\n'
+            yield ''  # Flush the response
             
         except Exception as e:
             logging.error(f"Error during video processing: {str(e)}", exc_info=True)
             yield json.dumps({'error': f'Error processing video: {str(e)}'}) + '\n'
+            yield ''  # Flush the response
             
         finally:
             try:

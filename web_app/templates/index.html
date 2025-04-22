@@ -343,8 +343,10 @@
             progressMessage.className = 'progress-message mt-2 text-center';
             progressBar.parentNode.insertBefore(progressMessage, progressBar.nextSibling);
 
+            // Make sure progress bar is visible
             progressBar.style.display = 'block';
             progressBarInner.style.width = '0%';
+            progressBarInner.setAttribute('aria-valuenow', 0);
             progressMessage.textContent = 'Starting...';
 
             // Construct the EventSource URL correctly
@@ -358,6 +360,19 @@
             let frameCount = 0;
             let fps = 0;
 
+            function updateProgress(progress, message) {
+                if (!progressBar || !progressBarInner || !progressMessage) {
+                    console.error('Progress elements not found');
+                    return;
+                }
+
+                progress = Math.min(100, Math.max(0, progress));
+                progressBarInner.style.width = progress + '%';
+                progressBarInner.setAttribute('aria-valuenow', progress);
+                progressMessage.textContent = message || 'Processing...';
+                console.log('Progress updated:', progress, message);
+            }
+
             eventSource.onmessage = function (event) {
                 try {
                     // Skip empty messages (flushes)
@@ -369,6 +384,7 @@
                     console.log('Received data:', data);
 
                     if (data.error) {
+                        console.error('Error received:', data.error);
                         progressBar.style.display = 'none';
                         progressMessage.textContent = '';
                         alert('Error processing video: ' + data.error);
@@ -376,13 +392,9 @@
                         return;
                     }
 
-                    // Update progress bar for all stages
+                    // Update progress for all messages that include progress
                     if (data.progress !== undefined) {
-                        const progress = Math.min(100, Math.max(0, data.progress));
-                        progressBarInner.style.width = progress + '%';
-                        progressBarInner.setAttribute('aria-valuenow', progress);
-                        progressMessage.textContent = data.message || 'Processing...';
-                        console.log('Progress updated:', progress, data.message);
+                        updateProgress(data.progress, data.message);
                     }
 
                     if (data.stage === 'transfer') {
@@ -392,6 +404,7 @@
                             processingTime = data.processing_time;
                             frameCount = data.frame_count;
                             fps = data.fps;
+                            updateProgress(data.progress, data.message);
                             console.log(`Starting transfer of ${totalChunks} chunks`);
                         }
 
@@ -399,9 +412,7 @@
                             videoData += data.video_chunk;
                             receivedChunks++;
                             const transferProgress = 90 + (receivedChunks / totalChunks) * 10;
-                            progressBarInner.style.width = transferProgress + '%';
-                            progressBarInner.setAttribute('aria-valuenow', transferProgress);
-                            progressMessage.textContent = `Transferring video data (${receivedChunks}/${totalChunks})`;
+                            updateProgress(transferProgress, `Transferring video data (${receivedChunks}/${totalChunks})`);
                             console.log(`Received chunk ${receivedChunks}/${totalChunks}, current data length: ${videoData.length}`);
 
                             if (receivedChunks === totalChunks) {
@@ -412,9 +423,7 @@
                     }
 
                     if (data.success && data.stage === 'complete') {
-                        progressBarInner.style.width = '100%';
-                        progressBarInner.setAttribute('aria-valuenow', 100);
-                        progressMessage.textContent = 'Processing completed!';
+                        updateProgress(100, 'Processing completed!');
                         console.log('Processing completed successfully');
                         eventSource.close();
                     }
@@ -448,6 +457,11 @@
                     const videoUrl = URL.createObjectURL(blob);
 
                     const resultVideo = document.getElementById('resultVideo');
+                    if (!resultVideo) {
+                        console.error('Result video element not found');
+                        return;
+                    }
+
                     resultVideo.src = videoUrl;
                     resultVideo.style.display = 'block';
                     resultVideo.controls = true;
@@ -455,9 +469,7 @@
                     // Add event listeners for video loading
                     resultVideo.onloadeddata = function () {
                         console.log('Video loaded successfully');
-                        progressBarInner.style.width = '100%';
-                        progressBarInner.setAttribute('aria-valuenow', 100);
-                        progressMessage.textContent = 'Processing completed!';
+                        updateProgress(100, 'Processing completed!');
                     };
 
                     resultVideo.onerror = function (error) {
