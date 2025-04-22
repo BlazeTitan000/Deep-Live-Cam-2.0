@@ -50,7 +50,7 @@ modules.globals.execution_threads = 1  # Single thread for CUDA
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max file size
 
 # Create static and videos directories if they don't exist
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
