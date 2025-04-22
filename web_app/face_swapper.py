@@ -28,16 +28,35 @@ def get_face_analyser() -> Any:
 
 def get_face_swapper() -> Any:
     global FACE_SWAPPER
+
     with THREAD_LOCK:
         if FACE_SWAPPER is None:
+            # Define paths for both FP32 and FP16 models
             model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'models')
+            model_path_fp32 = os.path.join(model_dir, 'inswapper_128.onnx')
             model_path_fp16 = os.path.join(model_dir, 'inswapper_128_fp16.onnx')
-            
-            if not os.path.exists(model_path_fp16):
-                raise FileNotFoundError(f"Face Swapper model not found at {model_path_fp16}")
-            
-            print(f"Loading FP16 model: {os.path.basename(model_path_fp16)}")
-            FACE_SWAPPER = insightface.model_zoo.get_model(model_path_fp16, providers=modules.globals.execution_providers)
+            chosen_model_path = None
+
+            # Prioritize FP32 model
+            if os.path.exists(model_path_fp32):
+                chosen_model_path = model_path_fp32
+                print(f"Loading FP32 model: {os.path.basename(chosen_model_path)}")
+            # Fallback to FP16 model
+            elif os.path.exists(model_path_fp16):
+                chosen_model_path = model_path_fp16
+                print(f"FP32 model not found. Loading FP16 model: {os.path.basename(chosen_model_path)}")
+            # Error if neither model is found
+            else:
+                error_message = f"Face Swapper model not found. Please ensure 'inswapper_128.onnx' (recommended) or 'inswapper_128_fp16.onnx' exists in the '{model_dir}' directory."
+                print(error_message)
+                raise FileNotFoundError(error_message)
+
+            # Load the chosen model
+            try:
+                FACE_SWAPPER = insightface.model_zoo.get_model(chosen_model_path, providers=modules.globals.execution_providers)
+            except Exception as e:
+                print(f"Error loading Face Swapper model {os.path.basename(chosen_model_path)}: {e}")
+                raise e
     return FACE_SWAPPER
 
 def get_one_face(frame: Frame) -> Face:
