@@ -303,9 +303,27 @@
         document.getElementById('targetVideo').addEventListener('change', function (e) {
             const file = e.target.files[0];
             if (file) {
-                const videoPreview = document.getElementById('videoPreview');
-                videoPreview.src = URL.createObjectURL(file);
-                videoPreview.style.display = 'block';
+                const formData = new FormData();
+                formData.append('file', file);
+
+                fetch('/upload_target_video', {
+                    method: 'POST',
+                    body: formData
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            const videoPreview = document.getElementById('videoPreview');
+                            videoPreview.src = URL.createObjectURL(file);
+                            videoPreview.style.display = 'block';
+                        } else {
+                            alert('Error uploading video: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error uploading video');
+                    });
             }
         });
 
@@ -318,9 +336,6 @@
                 return;
             }
 
-            const formData = new FormData();
-            formData.append('file', targetVideo);
-
             // Show progress bar
             const progressBar = document.querySelector('.progress');
             const progressBarInner = document.querySelector('.progress-bar');
@@ -328,8 +343,7 @@
             progressBarInner.style.width = '0%';
 
             fetch('/process_video', {
-                method: 'POST',
-                body: formData
+                method: 'POST'
             })
                 .then(response => response.json())
                 .then(data => {
@@ -338,6 +352,8 @@
                         resultVideo.src = 'data:video/mp4;base64,' + data.video;
                         resultVideo.style.display = 'block';
                         progressBarInner.style.width = '100%';
+                        console.log(`Processing completed in ${data.processing_time.toFixed(2)} seconds`);
+                        console.log(`Processed ${data.frame_count} frames at ${data.fps} FPS`);
                     } else {
                         alert('Error processing video: ' + data.error);
                     }
@@ -345,6 +361,9 @@
                 .catch(error => {
                     console.error('Error:', error);
                     alert('Error processing video');
+                })
+                .finally(() => {
+                    progressBar.style.display = 'none';
                 });
         });
     </script>

@@ -40,6 +40,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 # Global variables
 source_image = None
 target_image = None
+target_video = None
 face_swapper = None
 
 def parse_args():
@@ -117,6 +118,27 @@ def upload_target():
     logging.info("Target image uploaded successfully")
     return jsonify({'success': True})
 
+@app.route('/upload_target_video', methods=['POST'])
+def upload_target_video():
+    global target_video
+    if 'file' not in request.files:
+        logging.error("No file part in upload_target_video request")
+        return jsonify({'error': 'No file part'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        logging.error("No selected file in upload_target_video request")
+        return jsonify({'error': 'No selected file'}), 400
+    
+    logging.info(f"Uploading target video: {file.filename}")
+    # Save the uploaded video to a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
+        file.save(temp_video.name)
+        target_video = temp_video.name
+        logging.info(f"Target video saved to temporary file: {target_video}")
+    
+    return jsonify({'success': True, 'filename': file.filename})
+
 @app.route('/swap_faces', methods=['POST'])
 def swap_faces():
     global source_image, target_image, face_swapper
@@ -147,7 +169,7 @@ def swap_faces():
 
 @app.route('/process_video', methods=['POST'])
 def process_video_route():
-    global source_image, face_swapper
+    global source_image, target_video, face_swapper
     
     start_time = time.time()
     logging.info("Starting video processing request")
@@ -156,26 +178,15 @@ def process_video_route():
         logging.error("Source image not found for video processing")
         return jsonify({'error': 'Source image is required'}), 400
     
+    if target_video is None:
+        logging.error("Target video not found for video processing")
+        return jsonify({'error': 'Target video is required'}), 400
+    
     if face_swapper is None:
         logging.error("Face swapper not initialized for video processing")
         return jsonify({'error': 'Face swapper not initialized'}), 500
     
-    if 'file' not in request.files:
-        logging.error("No video file part in request")
-        return jsonify({'error': 'No video file part'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        logging.error("No selected video file")
-        return jsonify({'error': 'No selected file'}), 400
-    
-    logging.info(f"Processing video: {file.filename}")
-    
-    # Save the uploaded video to a temporary file
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
-        file.save(temp_video.name)
-        temp_video_path = temp_video.name
-        logging.info(f"Video saved to temporary file: {temp_video_path}")
+    logging.info(f"Processing video: {target_video}")
     
     # Create a temporary directory for frames
     temp_dir = tempfile.mkdtemp()
@@ -183,7 +194,7 @@ def process_video_route():
     
     try:
         # Extract frames from video
-        cap = cv2.VideoCapture(temp_video_path)
+        cap = cv2.VideoCapture(target_video)
         frame_paths = []
         frame_count = 0
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -253,7 +264,6 @@ def process_video_route():
     finally:
         # Clean up temporary files
         try:
-            os.unlink(temp_video_path)
             shutil.rmtree(temp_dir)
             logging.info("Temporary files cleaned up")
         except Exception as e:
