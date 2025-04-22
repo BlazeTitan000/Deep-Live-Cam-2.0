@@ -20,7 +20,7 @@ print(f"Project root: {project_root}")
 
 # Import required modules
 import modules.globals
-from face_swapper import get_face_swapper, swap_face, process_frame, process_image, process_video
+from face_swapper import get_face_swapper, swap_face, process_frame, process_image, process_video, get_one_face
 import cv2
 import numpy as np
 import base64
