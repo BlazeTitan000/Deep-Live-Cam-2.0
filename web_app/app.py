@@ -40,6 +40,14 @@ providers = ['CUDAExecutionProvider']  # Use CUDA only
 session_options = onnxruntime.SessionOptions()
 session_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
 
+# Set CUDA environment variables (matching desktop version)
+os.environ['OMP_NUM_THREADS'] = '1'  # Single thread for better CUDA performance
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
+# Set execution providers in globals (matching desktop version)
+modules.globals.execution_providers = ['CUDAExecutionProvider']
+modules.globals.execution_threads = 1  # Single thread for CUDA
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
