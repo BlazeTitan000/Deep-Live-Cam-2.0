@@ -254,24 +254,46 @@ def process_video_route():
                 
             out.release()
             
-            # Read the output video and convert to base64
+            # Read the output video and send in chunks
+            chunk_size = 1024 * 1024  # 1MB chunks
+            total_chunks = 0
+            current_chunk = 0
+            
             with open(output_path, 'rb') as f:
                 video_data = f.read()
-            video_base64 = base64.b64encode(video_data).decode('utf-8')
+                video_base64 = base64.b64encode(video_data).decode('utf-8')
+                total_chunks = (len(video_base64) + chunk_size - 1) // chunk_size
             
-            processing_time = time.time() - start_time
-            logging.info(f"Video processing completed in {processing_time:.2f} seconds")
+            # Send metadata first
+            yield json.dumps({
+                'stage': 'transfer',
+                'total_chunks': total_chunks,
+                'processing_time': time.time() - start_time,
+                'frame_count': frame_count,
+                'fps': fps
+            }) + '\n'
             
-            # Send completion message with video data
+            # Send video data in chunks
+            for i in range(0, len(video_base64), chunk_size):
+                chunk = video_base64[i:i + chunk_size]
+                current_chunk += 1
+                progress = 90 + int((current_chunk / total_chunks) * 10)
+                
+                yield json.dumps({
+                    'stage': 'transfer',
+                    'chunk': current_chunk,
+                    'total_chunks': total_chunks,
+                    'progress': progress,
+                    'message': f'Transferring video data ({current_chunk}/{total_chunks})',
+                    'video_chunk': chunk
+                }) + '\n'
+            
+            # Send completion message
             yield json.dumps({
                 'success': True,
                 'progress': 100,
                 'stage': 'complete',
-                'message': 'Processing completed',
-                'video': video_base64,
-                'processing_time': processing_time,
-                'frame_count': frame_count,
-                'fps': fps
+                'message': 'Processing completed'
             }) + '\n'
             
         except Exception as e:

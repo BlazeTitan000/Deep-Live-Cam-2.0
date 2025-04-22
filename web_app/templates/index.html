@@ -352,12 +352,16 @@
 
             const eventSource = new EventSource(eventSourceUrl);
             let videoData = '';
-            let completionData = null;
+            let totalChunks = 0;
+            let receivedChunks = 0;
+            let processingTime = 0;
+            let frameCount = 0;
+            let fps = 0;
 
             eventSource.onmessage = function (event) {
                 try {
                     const data = JSON.parse(event.data);
-                    console.log('Received data:', data); // Debug log
+                    console.log('Received data:', data);
 
                     if (data.error) {
                         progressBar.style.display = 'none';
@@ -370,50 +374,38 @@
                     if (data.progress !== undefined) {
                         progressBarInner.style.width = data.progress + '%';
                         progressMessage.textContent = data.message;
-                        console.log('Progress:', data.progress, data.message); // Debug log
                     }
 
-                    if (data.video_chunk) {
-                        // Accumulate video chunks
-                        videoData += data.video_chunk;
-                        console.log('Received video chunk, current length:', videoData.length); // Debug log
-                    }
-
-                    if (data.success && data.video) {
-                        // This is the last chunk with metadata
-                        videoData += data.video;
-                        completionData = data;
-
-                        try {
-                            // Create a blob from the complete base64 data
-                            const binaryData = atob(videoData);
-                            const arrayBuffer = new ArrayBuffer(binaryData.length);
-                            const uint8Array = new Uint8Array(arrayBuffer);
-                            for (let i = 0; i < binaryData.length; i++) {
-                                uint8Array[i] = binaryData.charCodeAt(i);
-                            }
-                            const blob = new Blob([uint8Array], { type: 'video/mp4' });
-                            const videoUrl = URL.createObjectURL(blob);
-
-                            const resultVideo = document.getElementById('resultVideo');
-                            resultVideo.src = videoUrl;
-                            resultVideo.style.display = 'block';
-
-                            progressBarInner.style.width = '100%';
-                            progressMessage.textContent = 'Processing completed!';
-
-                            console.log(`Processing completed in ${completionData.processing_time.toFixed(2)} seconds`);
-                            console.log(`Processed ${completionData.frame_count} frames at ${completionData.fps} FPS`);
-
-                            eventSource.close();
-                        } catch (error) {
-                            console.error('Error creating video blob:', error);
-                            alert('Error creating video: ' + error.message);
-                            eventSource.close();
+                    if (data.stage === 'transfer') {
+                        if (data.total_chunks) {
+                            // First transfer message contains metadata
+                            totalChunks = data.total_chunks;
+                            processingTime = data.processing_time;
+                            frameCount = data.frame_count;
+                            fps = data.fps;
+                            console.log(`Starting transfer of ${totalChunks} chunks`);
                         }
+
+                        if (data.video_chunk) {
+                            videoData += data.video_chunk;
+                            receivedChunks++;
+                            console.log(`Received chunk ${receivedChunks}/${totalChunks}`);
+
+                            if (receivedChunks === totalChunks) {
+                                console.log('All chunks received, creating video...');
+                                createVideoFromData();
+                            }
+                        }
+                    }
+
+                    if (data.success && data.stage === 'complete') {
+                        console.log('Processing completed successfully');
+                        eventSource.close();
                     }
                 } catch (error) {
                     console.error('Error processing message:', error);
+                    progressBar.style.display = 'none';
+                    progressMessage.textContent = '';
                     alert('Error processing video data: ' + error.message);
                     eventSource.close();
                 }
@@ -426,6 +418,36 @@
                 alert('Error processing video: Connection failed');
                 eventSource.close();
             };
+
+            function createVideoFromData() {
+                try {
+                    console.log('Creating video from data, length:', videoData.length);
+                    const binaryData = atob(videoData);
+                    const arrayBuffer = new ArrayBuffer(binaryData.length);
+                    const uint8Array = new Uint8Array(arrayBuffer);
+                    for (let i = 0; i < binaryData.length; i++) {
+                        uint8Array[i] = binaryData.charCodeAt(i);
+                    }
+                    const blob = new Blob([uint8Array], { type: 'video/mp4' });
+                    const videoUrl = URL.createObjectURL(blob);
+
+                    const resultVideo = document.getElementById('resultVideo');
+                    resultVideo.src = videoUrl;
+                    resultVideo.style.display = 'block';
+                    resultVideo.controls = true;
+
+                    progressBarInner.style.width = '100%';
+                    progressMessage.textContent = 'Processing completed!';
+
+                    console.log(`Processing completed in ${processingTime.toFixed(2)} seconds`);
+                    console.log(`Processed ${frameCount} frames at ${fps} FPS`);
+                } catch (error) {
+                    console.error('Error creating video:', error);
+                    progressBar.style.display = 'none';
+                    progressMessage.textContent = '';
+                    alert('Error creating video: ' + error.message);
+                }
+            }
         });
     </script>
 </body>
