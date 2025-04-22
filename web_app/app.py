@@ -188,6 +188,12 @@ def process_video_route():
     
     logging.info(f"Processing video: {target_video}")
     
+    # Get source face from source image
+    source_face = get_one_face(source_image)
+    if source_face is None:
+        logging.error("No face detected in source image")
+        return jsonify({'error': 'No face detected in source image'}), 400
+    
     # Create a temporary directory for frames
     temp_dir = tempfile.mkdtemp()
     logging.info(f"Created temporary directory for frames: {temp_dir}")
@@ -220,7 +226,7 @@ def process_video_route():
         
         # Process frames with face swapping
         logging.info("Starting face swap processing on frames")
-        process_video(source_image, frame_paths)
+        process_video(source_face, frame_paths)
         logging.info("Face swap processing completed")
         
         # Create output video

@@ -4,6 +4,7 @@ import cv2
 import insightface
 import threading
 import numpy as np
+import logging
 
 # Import modules for execution providers
 import modules.globals
@@ -106,12 +107,41 @@ def process_image(source_image: Frame, target_image: Frame) -> Frame:
         return target_image
     return process_frame(source_face, target_image)
 
-def process_video(source_path: str, temp_frame_paths: List[str]) -> None:
+def process_video(source_face: Face, frame_paths: List[str]) -> None:
     """Process a video with face swapping."""
-    if modules.globals.map_faces and modules.globals.many_faces:
-        print('Many faces enabled. Using first source image (if applicable in v2). Processing...')
-    # Delegate to core video processing
-    modules.processors.frame.core.process_video(source_path, temp_frame_paths, process_frames)
+    logging.info(f"Processing {len(frame_paths)} frames")
+    
+    # Process each frame
+    for i, frame_path in enumerate(frame_paths):
+        try:
+            # Read frame
+            frame = cv2.imread(frame_path)
+            if frame is None:
+                logging.error(f"Failed to read frame: {frame_path}")
+                continue
+                
+            # Process frame
+            if modules.globals.many_faces:
+                target_faces = get_many_faces(frame)
+                if target_faces:
+                    for target_face in target_faces:
+                        frame = swap_face(source_face, target_face, frame)
+            else:
+                target_face = get_one_face(frame)
+                if target_face:
+                    frame = swap_face(source_face, target_face, frame)
+                    
+            # Save result
+            cv2.imwrite(frame_path, frame)
+            
+            if i % 10 == 0:  # Log progress every 10 frames
+                logging.info(f"Processed frame {i+1}/{len(frame_paths)}")
+                
+        except Exception as e:
+            logging.error(f"Error processing frame {frame_path}: {str(e)}")
+            continue
+            
+    logging.info("Video processing completed")
 
 def process_video_frame(source_face: Face, frame: Frame, many_faces: bool = False) -> Frame:
     """Process a single video frame with face swapping."""
