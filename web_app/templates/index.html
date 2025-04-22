@@ -347,61 +347,74 @@
             progressBarInner.style.width = '0%';
             progressMessage.textContent = 'Starting...';
 
-            // Get the current URL and construct the EventSource URL
-            const currentUrl = window.location.href;
-            const baseUrl = currentUrl.endsWith('/') ? currentUrl.slice(0, -1) : currentUrl;
-            const eventSourceUrl = `${baseUrl}/process_video`;
+            // Construct the EventSource URL correctly
+            const eventSourceUrl = '/process_video';
 
             const eventSource = new EventSource(eventSourceUrl);
             let videoData = '';
             let completionData = null;
 
             eventSource.onmessage = function (event) {
-                const data = JSON.parse(event.data);
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('Received data:', data); // Debug log
 
-                if (data.error) {
-                    progressBar.style.display = 'none';
-                    progressMessage.textContent = '';
-                    alert('Error processing video: ' + data.error);
-                    eventSource.close();
-                    return;
-                }
-
-                if (data.progress !== undefined) {
-                    progressBarInner.style.width = data.progress + '%';
-                    progressMessage.textContent = data.message;
-                }
-
-                if (data.video_chunk) {
-                    // Accumulate video chunks
-                    videoData += data.video_chunk;
-                }
-
-                if (data.success && data.video) {
-                    // This is the last chunk with metadata
-                    videoData += data.video;
-                    completionData = data;
-
-                    // Create a blob from the complete base64 data
-                    const binaryData = atob(videoData);
-                    const arrayBuffer = new ArrayBuffer(binaryData.length);
-                    const uint8Array = new Uint8Array(arrayBuffer);
-                    for (let i = 0; i < binaryData.length; i++) {
-                        uint8Array[i] = binaryData.charCodeAt(i);
+                    if (data.error) {
+                        progressBar.style.display = 'none';
+                        progressMessage.textContent = '';
+                        alert('Error processing video: ' + data.error);
+                        eventSource.close();
+                        return;
                     }
-                    const blob = new Blob([uint8Array], { type: 'video/mp4' });
-                    const videoUrl = URL.createObjectURL(blob);
 
-                    const resultVideo = document.getElementById('resultVideo');
-                    resultVideo.src = videoUrl;
-                    resultVideo.style.display = 'block';
+                    if (data.progress !== undefined) {
+                        progressBarInner.style.width = data.progress + '%';
+                        progressMessage.textContent = data.message;
+                        console.log('Progress:', data.progress, data.message); // Debug log
+                    }
 
-                    progressBarInner.style.width = '100%';
-                    progressMessage.textContent = 'Processing completed!';
+                    if (data.video_chunk) {
+                        // Accumulate video chunks
+                        videoData += data.video_chunk;
+                        console.log('Received video chunk, current length:', videoData.length); // Debug log
+                    }
 
-                    console.log(`Processing completed in ${completionData.processing_time.toFixed(2)} seconds`);
-                    console.log(`Processed ${completionData.frame_count} frames at ${completionData.fps} FPS`);
+                    if (data.success && data.video) {
+                        // This is the last chunk with metadata
+                        videoData += data.video;
+                        completionData = data;
 
+                        try {
+                            // Create a blob from the complete base64 data
+                            const binaryData = atob(videoData);
+                            const arrayBuffer = new ArrayBuffer(binaryData.length);
+                            const uint8Array = new Uint8Array(arrayBuffer);
+                            for (let i = 0; i < binaryData.length; i++) {
+                                uint8Array[i] = binaryData.charCodeAt(i);
+                            }
+                            const blob = new Blob([uint8Array], { type: 'video/mp4' });
+                            const videoUrl = URL.createObjectURL(blob);
+
+                            const resultVideo = document.getElementById('resultVideo');
+                            resultVideo.src = videoUrl;
+                            resultVideo.style.display = 'block';
+
+                            progressBarInner.style.width = '100%';
+                            progressMessage.textContent = 'Processing completed!';
+
+                            console.log(`Processing completed in ${completionData.processing_time.toFixed(2)} seconds`);
+                            console.log(`Processed ${completionData.frame_count} frames at ${completionData.fps} FPS`);
+
+                            eventSource.close();
+                        } catch (error) {
+                            console.error('Error creating video blob:', error);
+                            alert('Error creating video: ' + error.message);
+                            eventSource.close();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error processing message:', error);
+                    alert('Error processing video data: ' + error.message);
                     eventSource.close();
                 }
             };
