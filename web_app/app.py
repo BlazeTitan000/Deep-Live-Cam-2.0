@@ -37,68 +37,13 @@ import json
 # Set ONNX runtime execution providers to use CUDA only
 onnxruntime.set_default_logger_severity(3)  # Reduce logging
 
-# Create session options with optimized settings
-session_options = onnxruntime.SessionOptions()
-session_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
-session_options.intra_op_num_threads = 1
-session_options.inter_op_num_threads = 1
-session_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
-session_options.enable_cpu_mem_arena = True
-session_options.enable_mem_pattern = True
-session_options.enable_mem_reuse = True
-
-# Set CUDA environment variables for optimal performance and quality
+# Set CUDA environment variables (matching desktop version)
 os.environ['OMP_NUM_THREADS'] = '1'  # Single thread for better CUDA performance
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-os.environ['CUDA_LAUNCH_BLOCKING'] = '0'  # Enable asynchronous execution
-os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # Allow GPU memory growth
-os.environ['CUDA_CACHE_DISABLE'] = '0'  # Enable CUDA cache
-os.environ['CUDA_CACHE_PATH'] = '/tmp/cuda_cache'  # Set cache path
 
-# Create CUDA cache directory
-os.makedirs('/tmp/cuda_cache', exist_ok=True)
-
-# Define optimized CUDA provider options for quality and performance
-cuda_provider_options = {
-    'device_id': '0',
-    'arena_extend_strategy': 'kNextPowerOfTwo',
-    'gpu_mem_limit': str(40 * 1024 * 1024 * 1024),  # 40GB limit
-    'cudnn_conv_algo_search': 'EXHAUSTIVE',  # Best quality algorithm
-    'do_copy_in_default_stream': '1',
-    'cudnn_conv_use_max_workspace': '1',
-    'enable_cuda_graph': '1',
-    'tunable_op_enable': '1',
-    'tunable_op_tuning_enable': '1',
-    'tunable_op_max_tuning_duration_ms': '2000',  # Increased tuning time for better quality
-    'use_ep_level_unified_stream': '1',
-    'enable_skip_layer_norm_strict_mode': '1',  # Better quality for normalization
-    'prefer_nhwc': '1',
-    'cudnn_conv1d_pad_to_nc1d': '1',
-    'gpu_external_alloc': '1',
-    'gpu_external_free': '1',
-    'gpu_external_empty_cache': '1',
-    'has_user_compute_stream': '1',
-    'enable_cuda_graph_capture': '1',  # Enable graph capture for better quality
-    'cudnn_conv_use_max_workspace': '1',  # Use maximum workspace for better quality
-    'cudnn_conv_algo_search': 'EXHAUSTIVE',  # Use exhaustive search for best quality
-    'enable_cpu_mem_arena': '1',  # Enable CPU memory arena for better quality
-    'enable_mem_pattern': '1',  # Enable memory pattern for better quality
-    'enable_mem_reuse': '1'  # Enable memory reuse for better quality
-}
-
-# Set execution providers in globals
-modules.globals.execution_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-modules.globals.execution_threads = 1
-modules.globals.execution_provider_options = {
-    'CUDAExecutionProvider': cuda_provider_options,
-    'CPUExecutionProvider': {
-        'num_threads': '1',
-        'arena_extend_strategy': 'kNextPowerOfTwo',
-        'enable_cpu_mem_arena': '1',
-        'enable_mem_pattern': '1',
-        'enable_mem_reuse': '1'
-    }
-}
+# Set execution providers in globals (matching desktop version)
+modules.globals.execution_providers = ['CUDAExecutionProvider']
+modules.globals.execution_threads = 1  # Single thread for CUDA
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
