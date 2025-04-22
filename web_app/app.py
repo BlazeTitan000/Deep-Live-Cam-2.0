@@ -28,7 +28,7 @@ import io
 from PIL import Image
 import argparse
 import onnxruntime
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, send_from_directory
 import tempfile
 import shutil
 import time
@@ -37,6 +37,13 @@ import json
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+
+# Create static and videos directories if they don't exist
+static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+videos_dir = os.path.join(static_dir, 'videos')
+os.makedirs(videos_dir, exist_ok=True)
+logging.info(f"Created/verified static directory: {static_dir}")
+logging.info(f"Created/verified videos directory: {videos_dir}")
 
 # Global variables
 source_image = None
@@ -239,7 +246,11 @@ def process_video_route():
             
             # Create output video
             yield json.dumps({'progress': 66, 'stage': 'creating', 'message': 'Creating output video...'}) + '\n'
-            output_path = os.path.join(temp_dir, 'output.mp4')
+            
+            # Generate unique filename
+            timestamp = int(time.time())
+            output_filename = f'output_{timestamp}.mp4'
+            output_path = os.path.join(videos_dir, output_filename)
             
             # Use the first processed frame to get dimensions
             height, width = processed_frames[0].shape[:2]
@@ -254,34 +265,17 @@ def process_video_route():
                 
             out.release()
             
-            # Send video metadata
-            yield json.dumps({
-                'stage': 'video_start',
-                'message': 'Starting video transfer',
-                'progress': 90
-            }) + '\n'
+            # Send completion message with video URL
+            video_url = f'/static/videos/{output_filename}'
+            logging.info(f"Video saved to: {output_path}")
+            logging.info(f"Video URL: {video_url}")
             
-            # Stream the video file
-            with open(output_path, 'rb') as f:
-                chunk_size = 1024 * 1024  # 1MB chunks
-                while True:
-                    chunk = f.read(chunk_size)
-                    if not chunk:
-                        break
-                    # Send chunk with proper headers
-                    yield f'--frame\r\nContent-Type: application/octet-stream\r\nContent-Length: {len(chunk)}\r\n\r\n'.encode()
-                    yield chunk
-                    yield b'\r\n'
-            
-            # Send final boundary
-            yield b'--frame--\r\n'
-            
-            # Send completion message
             yield json.dumps({
                 'success': True,
                 'progress': 100,
                 'stage': 'complete',
                 'message': 'Processing completed',
+                'video_url': video_url,
                 'processing_time': time.time() - start_time,
                 'frame_count': frame_count,
                 'fps': fps
@@ -298,7 +292,7 @@ def process_video_route():
             except Exception as e:
                 logging.error(f"Error cleaning up temporary files: {str(e)}")
     
-    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
     args = parse_args()
