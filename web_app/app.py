@@ -65,6 +65,13 @@ def initialize_frame_processors():
     modules.globals.mouth_mask = False
     modules.globals.nsfw_filter = False
     
+    # Initialize frame processor UI settings
+    modules.globals.fp_ui = {
+        'face_swapper': True,
+        'face_enhancer': False
+    }
+    modules.globals.frame_processors = ['face_swapper']
+    
     # Get available frame processors
     available_processors = get_frame_processors_modules([])
     print(f"Available frame processors: {[p.__name__ for p in available_processors]}")
@@ -174,10 +181,17 @@ def handle_update_settings(settings):
     modules.globals.mouth_mask = settings.get('mouth_mask', False)
     modules.globals.nsfw_filter = settings.get('nsfw_filter', False)
     
+    # Update frame processor UI settings
+    modules.globals.fp_ui = {
+        'face_swapper': True,
+        'face_enhancer': False
+    }
+    modules.globals.frame_processors = ['face_swapper']
+    
     # Update frame processors
     global frame_processors
     try:
-        frame_processors = get_frame_processors_modules(settings.get('frame_processors', ['face_swapper']))
+        frame_processors = get_frame_processors_modules(['face_swapper'])
         print(f"Updated frame processors: {[p.__name__ for p in frame_processors]}")
     except Exception as e:
         print(f"Error updating frame processors: {str(e)}")
