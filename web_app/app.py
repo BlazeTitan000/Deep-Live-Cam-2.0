@@ -86,18 +86,6 @@ cuda_provider_options = {
     'enable_mem_reuse': '1'  # Enable memory reuse for better quality
 }
 
-# Set providers with optimized options
-providers = [
-    ('CUDAExecutionProvider', cuda_provider_options),
-    ('CPUExecutionProvider', {
-        'num_threads': '1',
-        'arena_extend_strategy': 'kNextPowerOfTwo',
-        'enable_cpu_mem_arena': '1',
-        'enable_mem_pattern': '1',
-        'enable_mem_reuse': '1'
-    })
-]
-
 # Set execution providers in globals
 modules.globals.execution_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
 modules.globals.execution_threads = 1
@@ -135,11 +123,8 @@ def initialize_face_swapper():
     global face_swapper
     logging.info("Initializing face swapper...")
     try:
-        # Initialize with optimized settings
-        face_swapper = get_face_swapper(
-            providers=providers,
-            session_options=session_options
-        )
+        # Initialize with default parameters, settings will be applied through globals
+        face_swapper = get_face_swapper()
         logging.info("Successfully initialized face swapper with optimized CUDA settings")
     except Exception as e:
         logging.error(f"Error initializing face swapper: {str(e)}")
