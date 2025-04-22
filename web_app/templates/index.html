@@ -352,13 +352,12 @@
             // Construct the EventSource URL correctly
             const eventSourceUrl = '/process_video';
 
-            const eventSource = new EventSource(eventSourceUrl);
-            let videoData = '';
-            let totalChunks = 0;
-            let receivedChunks = 0;
-            let processingTime = 0;
-            let frameCount = 0;
-            let fps = 0;
+            // Use XMLHttpRequest instead of EventSource for binary data
+            const xhr = new XMLHttpRequest();
+            xhr.responseType = 'arraybuffer';
+            let videoChunks = [];
+            let videoSize = 0;
+            let receivedSize = 0;
 
             function updateProgress(progress, message) {
                 if (!progressBar || !progressBarInner || !progressMessage) {
@@ -373,121 +372,151 @@
                 console.log('Progress updated:', progress, message);
             }
 
-            eventSource.onmessage = function (event) {
-                try {
-                    // Skip empty messages (flushes)
-                    if (!event.data.trim()) {
-                        return;
-                    }
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    const response = xhr.response;
+                    const textDecoder = new TextDecoder();
+                    let offset = 0;
 
-                    const data = JSON.parse(event.data);
-                    console.log('Received data:', data);
+                    while (offset < response.byteLength) {
+                        // Find the next boundary
+                        const boundaryIndex = findBoundary(response, offset);
+                        if (boundaryIndex === -1) break;
 
-                    if (data.error) {
-                        console.error('Error received:', data.error);
-                        progressBar.style.display = 'none';
-                        progressMessage.textContent = '';
-                        alert('Error processing video: ' + data.error);
-                        eventSource.close();
-                        return;
-                    }
+                        // Extract the part between boundaries
+                        const part = response.slice(offset, boundaryIndex);
+                        offset = boundaryIndex + 2; // Skip the boundary
 
-                    // Update progress for all messages that include progress
-                    if (data.progress !== undefined) {
-                        updateProgress(data.progress, data.message);
-                    }
+                        // Parse headers
+                        const headers = parseHeaders(part);
 
-                    if (data.stage === 'transfer') {
-                        if (data.total_chunks) {
-                            // First transfer message contains metadata
-                            totalChunks = data.total_chunks;
-                            processingTime = data.processing_time;
-                            frameCount = data.frame_count;
-                            fps = data.fps;
-                            updateProgress(data.progress, data.message);
-                            console.log(`Starting transfer of ${totalChunks} chunks`);
-                        }
+                        if (headers['Content-Type'] === 'application/octet-stream') {
+                            // This is video data
+                            const contentLength = parseInt(headers['Content-Length']);
+                            const dataStart = findDataStart(part);
+                            const videoData = part.slice(dataStart, dataStart + contentLength);
+                            videoChunks.push(videoData);
+                            receivedSize += contentLength;
 
-                        if (data.video_chunk) {
-                            videoData += data.video_chunk;
-                            receivedChunks++;
-                            const transferProgress = 90 + (receivedChunks / totalChunks) * 10;
-                            updateProgress(transferProgress, `Transferring video data (${receivedChunks}/${totalChunks})`);
-                            console.log(`Received chunk ${receivedChunks}/${totalChunks}, current data length: ${videoData.length}`);
+                            // Update progress
+                            if (videoSize > 0) {
+                                const progress = 90 + (receivedSize / videoSize) * 10;
+                                updateProgress(progress, `Downloading video (${Math.round(receivedSize / 1024 / 1024)}MB/${Math.round(videoSize / 1024 / 1024)}MB)`);
+                            }
+                        } else {
+                            // This is JSON data
+                            const text = textDecoder.decode(part);
+                            if (text.trim().startsWith('{')) {
+                                try {
+                                    const data = JSON.parse(text);
+                                    console.log('Received data:', data);
 
-                            if (receivedChunks === totalChunks) {
-                                console.log('All chunks received, creating video...');
-                                createVideoFromData();
+                                    if (data.error) {
+                                        console.error('Error received:', data.error);
+                                        progressBar.style.display = 'none';
+                                        progressMessage.textContent = '';
+                                        alert('Error processing video: ' + data.error);
+                                        return;
+                                    }
+
+                                    if (data.progress !== undefined) {
+                                        updateProgress(data.progress, data.message);
+                                    }
+
+                                    if (data.video_size) {
+                                        videoSize = data.video_size;
+                                    }
+
+                                    if (data.success && data.stage === 'complete') {
+                                        updateProgress(100, 'Processing completed!');
+                                        console.log('Processing completed successfully');
+                                        console.log(`Processing completed in ${data.processing_time.toFixed(2)} seconds`);
+                                        console.log(`Processed ${data.frame_count} frames at ${data.fps} FPS`);
+
+                                        // Create video from collected chunks
+                                        const blob = new Blob(videoChunks, { type: 'video/mp4' });
+                                        const videoUrl = URL.createObjectURL(blob);
+
+                                        const resultVideo = document.getElementById('resultVideo');
+                                        if (!resultVideo) {
+                                            console.error('Result video element not found');
+                                            return;
+                                        }
+
+                                        resultVideo.src = videoUrl;
+                                        resultVideo.style.display = 'block';
+                                        resultVideo.controls = true;
+
+                                        resultVideo.onloadeddata = function () {
+                                            console.log('Video loaded successfully');
+                                        };
+
+                                        resultVideo.onerror = function (error) {
+                                            console.error('Error loading video:', error);
+                                            progressBar.style.display = 'none';
+                                            progressMessage.textContent = '';
+                                            alert('Error loading video: ' + error.message);
+                                        };
+                                    }
+                                } catch (e) {
+                                    console.error('Error parsing JSON:', e);
+                                }
                             }
                         }
                     }
-
-                    if (data.success && data.stage === 'complete') {
-                        updateProgress(100, 'Processing completed!');
-                        console.log('Processing completed successfully');
-                        eventSource.close();
-                    }
-                } catch (error) {
-                    console.error('Error processing message:', error);
+                } else {
+                    console.error('Request failed with status:', xhr.status);
                     progressBar.style.display = 'none';
                     progressMessage.textContent = '';
-                    alert('Error processing video data: ' + error.message);
-                    eventSource.close();
+                    alert('Error processing video: Request failed');
                 }
             };
 
-            eventSource.onerror = function (error) {
-                console.error('EventSource failed:', error);
-                progressBar.style.display = 'none';
-                progressMessage.textContent = '';
-                alert('Error processing video: Connection failed');
-                eventSource.close();
-            };
+            // Helper function to find boundary in response
+            function findBoundary(response, offset) {
+                const boundary = '--frame\r\n';
+                const boundaryBytes = new TextEncoder().encode(boundary);
+                const view = new Uint8Array(response);
 
-            function createVideoFromData() {
-                try {
-                    console.log('Creating video from data, length:', videoData.length);
-                    const binaryData = atob(videoData);
-                    const arrayBuffer = new ArrayBuffer(binaryData.length);
-                    const uint8Array = new Uint8Array(arrayBuffer);
-                    for (let i = 0; i < binaryData.length; i++) {
-                        uint8Array[i] = binaryData.charCodeAt(i);
+                for (let i = offset; i < view.length - boundaryBytes.length; i++) {
+                    let match = true;
+                    for (let j = 0; j < boundaryBytes.length; j++) {
+                        if (view[i + j] !== boundaryBytes[j]) {
+                            match = false;
+                            break;
+                        }
                     }
-                    const blob = new Blob([uint8Array], { type: 'video/mp4' });
-                    const videoUrl = URL.createObjectURL(blob);
-
-                    const resultVideo = document.getElementById('resultVideo');
-                    if (!resultVideo) {
-                        console.error('Result video element not found');
-                        return;
-                    }
-
-                    resultVideo.src = videoUrl;
-                    resultVideo.style.display = 'block';
-                    resultVideo.controls = true;
-
-                    // Add event listeners for video loading
-                    resultVideo.onloadeddata = function () {
-                        console.log('Video loaded successfully');
-                        updateProgress(100, 'Processing completed!');
-                    };
-
-                    resultVideo.onerror = function (error) {
-                        console.error('Error loading video:', error);
-                        progressBar.style.display = 'none';
-                        progressMessage.textContent = '';
-                        alert('Error loading video: ' + error.message);
-                    };
-
-                    console.log(`Processing completed in ${processingTime.toFixed(2)} seconds`);
-                    console.log(`Processed ${frameCount} frames at ${fps} FPS`);
-                } catch (error) {
-                    console.error('Error creating video:', error);
-                    progressBar.style.display = 'none';
-                    progressMessage.textContent = '';
-                    alert('Error creating video: ' + error.message);
+                    if (match) return i;
                 }
+                return -1;
             }
+
+            // Helper function to parse headers
+            function parseHeaders(part) {
+                const headers = {};
+                const text = new TextDecoder().decode(part);
+                const lines = text.split('\r\n');
+
+                for (const line of lines) {
+                    if (line.includes(':')) {
+                        const [name, value] = line.split(':').map(s => s.trim());
+                        headers[name] = value;
+                    }
+                }
+
+                return headers;
+            }
+
+            // Helper function to find start of data after headers
+            function findDataStart(part) {
+                const text = new TextDecoder().decode(part);
+                const headerEnd = text.indexOf('\r\n\r\n');
+                return headerEnd + 4; // Skip the double newline
+            }
+
+            // Start the request
+            xhr.open('GET', eventSourceUrl);
+            xhr.send();
         });
     </script>
 </body>
