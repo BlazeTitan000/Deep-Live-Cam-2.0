@@ -14,47 +14,35 @@ from modules.utilities import is_image, is_video
 from modules.face_analyser import default_source_face
 from modules.cluster_analysis import find_closest_centroid
 
+# Global caches
 FACE_SWAPPER = None
+FACE_ANALYSER = None
 THREAD_LOCK = threading.Lock()
+
+def get_face_analyser() -> Any:
+    global FACE_ANALYSER
+    if FACE_ANALYSER is None:
+        FACE_ANALYSER = insightface.app.FaceAnalysis(name='buffalo_l')
+        FACE_ANALYSER.prepare(ctx_id=0, det_size=(640, 640))
+    return FACE_ANALYSER
 
 def get_face_swapper() -> Any:
     global FACE_SWAPPER
-
     with THREAD_LOCK:
         if FACE_SWAPPER is None:
-            # Define paths for both FP32 and FP16 models
             model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'models')
-            model_path_fp32 = os.path.join(model_dir, 'inswapper_128.onnx')
             model_path_fp16 = os.path.join(model_dir, 'inswapper_128_fp16.onnx')
-            chosen_model_path = None
-
-            # Prioritize FP32 model
-            if os.path.exists(model_path_fp32):
-                chosen_model_path = model_path_fp32
-                print(f"Loading FP32 model: {os.path.basename(chosen_model_path)}")
-            # Fallback to FP16 model
-            elif os.path.exists(model_path_fp16):
-                chosen_model_path = model_path_fp16
-                print(f"FP32 model not found. Loading FP16 model: {os.path.basename(chosen_model_path)}")
-            # Error if neither model is found
-            else:
-                error_message = f"Face Swapper model not found. Please ensure 'inswapper_128.onnx' (recommended) or 'inswapper_128_fp16.onnx' exists in the '{model_dir}' directory."
-                print(error_message)
-                raise FileNotFoundError(error_message)
-
-            # Load the chosen model
-            try:
-                FACE_SWAPPER = insightface.model_zoo.get_model(chosen_model_path, providers=modules.globals.execution_providers)
-            except Exception as e:
-                print(f"Error loading Face Swapper model {os.path.basename(chosen_model_path)}: {e}")
-                raise e
+            
+            if not os.path.exists(model_path_fp16):
+                raise FileNotFoundError(f"Face Swapper model not found at {model_path_fp16}")
+            
+            print(f"Loading FP16 model: {os.path.basename(model_path_fp16)}")
+            FACE_SWAPPER = insightface.model_zoo.get_model(model_path_fp16, providers=modules.globals.execution_providers)
     return FACE_SWAPPER
 
 def get_one_face(frame: Frame) -> Face:
-    """Get one face from the frame using insightface."""
     try:
-        face_analyser = insightface.app.FaceAnalysis(name='buffalo_l')
-        face_analyser.prepare(ctx_id=0, det_size=(640, 640))
+        face_analyser = get_face_analyser()
         faces = face_analyser.get(frame)
         if faces:
             return faces[0]
@@ -64,10 +52,8 @@ def get_one_face(frame: Frame) -> Face:
         return None
 
 def get_many_faces(frame: Frame) -> List[Face]:
-    """Get multiple faces from the frame using insightface."""
     try:
-        face_analyser = insightface.app.FaceAnalysis(name='buffalo_l')
-        face_analyser.prepare(ctx_id=0, det_size=(640, 640))
+        face_analyser = get_face_analyser()
         faces = face_analyser.get(frame)
         return faces if faces else []
     except Exception as e:
@@ -82,7 +68,6 @@ def swap_face(source_face: Face, target_face: Face, temp_frame: Frame) -> Frame:
     return swapper.get(temp_frame, target_face, source_face, paste_back=True)
 
 def process_frame(source_face: Face, temp_frame: Frame, many_faces: bool = False) -> Frame:
-    """Process a single frame with face swapping."""
     if many_faces:
         target_faces = get_many_faces(temp_frame)
         if target_faces:
@@ -95,14 +80,10 @@ def process_frame(source_face: Face, temp_frame: Frame, many_faces: bool = False
     return temp_frame
 
 def process_image(source_image: Frame, target_image: Frame) -> Frame:
-    """Process an image with face swapping."""
-    # Get source face
     source_face = get_one_face(source_image)
     if source_face is None:
         print("No face detected in source image")
         return target_image
-    
-    # Process the target image
     return process_frame(source_face, target_image)
 
 def process_video(source_path: str, temp_frame_paths: List[str]) -> None:
