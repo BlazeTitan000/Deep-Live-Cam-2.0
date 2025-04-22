@@ -353,7 +353,8 @@
             const eventSourceUrl = `${baseUrl}/process_video`;
 
             const eventSource = new EventSource(eventSourceUrl);
-            let videoData = null;
+            let videoData = '';
+            let completionData = null;
 
             eventSource.onmessage = function (event) {
                 const data = JSON.parse(event.data);
@@ -371,12 +372,17 @@
                     progressMessage.textContent = data.message;
                 }
 
-                if (data.success) {
-                    videoData = data.video;
-                    progressBarInner.style.width = '100%';
-                    progressMessage.textContent = 'Processing completed!';
+                if (data.video_chunk) {
+                    // Accumulate video chunks
+                    videoData += data.video_chunk;
+                }
 
-                    // Create a blob from the base64 data
+                if (data.success && data.video) {
+                    // This is the last chunk with metadata
+                    videoData += data.video;
+                    completionData = data;
+
+                    // Create a blob from the complete base64 data
                     const binaryData = atob(videoData);
                     const arrayBuffer = new ArrayBuffer(binaryData.length);
                     const uint8Array = new Uint8Array(arrayBuffer);
@@ -390,8 +396,11 @@
                     resultVideo.src = videoUrl;
                     resultVideo.style.display = 'block';
 
-                    console.log(`Processing completed in ${data.processing_time.toFixed(2)} seconds`);
-                    console.log(`Processed ${data.frame_count} frames at ${data.fps} FPS`);
+                    progressBarInner.style.width = '100%';
+                    progressMessage.textContent = 'Processing completed!';
+
+                    console.log(`Processing completed in ${completionData.processing_time.toFixed(2)} seconds`);
+                    console.log(`Processed ${completionData.frame_count} frames at ${completionData.fps} FPS`);
 
                     eventSource.close();
                 }

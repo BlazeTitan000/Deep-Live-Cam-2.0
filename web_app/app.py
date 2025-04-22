@@ -252,7 +252,10 @@ def process_video_route():
             video_base64 = base64.b64encode(video_data).decode('utf-8')
             
             processing_time = time.time() - start_time
-            yield json.dumps({
+            logging.info(f"Video processing completed in {processing_time:.2f} seconds")
+            
+            # Send completion message with video data
+            completion_data = {
                 'success': True,
                 'progress': 100,
                 'stage': 'complete',
@@ -261,7 +264,19 @@ def process_video_route():
                 'processing_time': processing_time,
                 'frame_count': frame_count,
                 'fps': fps
-            }) + '\n'
+            }
+            
+            # Send the completion data in chunks to avoid connection issues
+            chunk_size = 1000000  # 1MB chunks
+            for i in range(0, len(video_base64), chunk_size):
+                chunk = video_base64[i:i + chunk_size]
+                if i + chunk_size >= len(video_base64):
+                    # Last chunk includes all metadata
+                    completion_data['video'] = chunk
+                    yield json.dumps(completion_data) + '\n'
+                else:
+                    # Intermediate chunks only contain video data
+                    yield json.dumps({'video_chunk': chunk}) + '\n'
             
         except Exception as e:
             logging.error(f"Error during video processing: {str(e)}", exc_info=True)
