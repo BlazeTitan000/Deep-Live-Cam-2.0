@@ -30,6 +30,7 @@
             width: 100%;
             border-radius: 10px;
             background-color: #2d2d2d;
+            display: none;
         }
 
         .control-panel {
@@ -73,7 +74,10 @@
         }
 
         #canvas {
-            display: none;
+            display: block;
+            width: 100%;
+            border-radius: 10px;
+            background-color: #2d2d2d;
         }
     </style>
 </head>
@@ -246,7 +250,7 @@
             ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
             // Get image data from canvas
-            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            const imageData = canvas.toDataURL('image/jpeg', 0.95);
 
             // Send frame to server
             socket.emit('process_frame', {
@@ -306,8 +310,10 @@
         socket.on('processed_frame', function (data) {
             const img = new Image();
             img.onload = function () {
+                // Clear the canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                // Draw the processed frame
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                videoElement.src = canvas.toDataURL('image/jpeg', 0.95);
             };
             img.src = 'data:image/jpeg;base64,' + data.frame;
         });

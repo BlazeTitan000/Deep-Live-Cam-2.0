@@ -142,11 +142,11 @@ def handle_process_frame(data):
     frame_np = np.frombuffer(frame_data, dtype=np.uint8)
     frame = cv2.imdecode(frame_np, cv2.IMREAD_COLOR)
     
-    # Process the frame
+    # Process the frame with face swapping
     result_frame = process_frame(source_image, frame)
     
-    # Convert the processed frame back to base64
-    _, buffer = cv2.imencode('.jpg', result_frame)
+    # Convert the processed frame back to base64 with high quality
+    _, buffer = cv2.imencode('.jpg', result_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
     frame_base64 = base64.b64encode(buffer).decode('utf-8')
     
     # Send the processed frame back to the client
