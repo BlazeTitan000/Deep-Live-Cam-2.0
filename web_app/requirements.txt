@@ -19,6 +19,8 @@ onnxruntime-gpu==1.17; sys_platform != 'darwin'
 tensorflow; sys_platform != 'darwin'
 opennsfw2==0.10.2
 protobuf==4.23.2
+# gfpgan==1.3.8; sys_platform != 'darwin'
+# gfpgan==1.3.8; sys_platform == 'darwin'
 
 # Web version dependencies
 flask==2.0.1

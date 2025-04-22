@@ -73,7 +73,10 @@ face_swapper = None
 face_enhancer = None
 
 # Define models directory
-models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+abs_dir = os.path.dirname(os.path.abspath(__file__))
+models_dir = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(abs_dir))), "models"
+)
 
 def initialize_models():
     global face_swapper, face_enhancer
@@ -81,20 +84,16 @@ def initialize_models():
     # Create models directory if it doesn't exist
     os.makedirs(models_dir, exist_ok=True)
     
-    # Download GFPGAN model if needed
-    conditional_download(
-        models_dir,
-        [
-            "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.4/GFPGANv1.4.pth"
-        ],
-    )
-    
     logging.info("Initializing face swapper and face enhancer...")
     try:
         face_swapper = get_face_swapper()
         
         # Initialize face enhancer with platform-specific settings
         model_path = os.path.join(models_dir, "GFPGANv1.4.pth")
+        if not os.path.exists(model_path):
+            logging.error(f"GFPGAN model not found at {model_path}")
+            return
+        
         if platform.system() == "Darwin" and torch.backends.mps.is_available():
             mps_device = torch.device("mps")
             face_enhancer = gfpgan.GFPGANer(model_path=model_path, upscale=1, device=mps_device)
