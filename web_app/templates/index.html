@@ -339,32 +339,66 @@
             // Show progress bar
             const progressBar = document.querySelector('.progress');
             const progressBarInner = document.querySelector('.progress-bar');
+            const progressMessage = document.createElement('div');
+            progressMessage.className = 'progress-message mt-2 text-center';
+            progressBar.parentNode.insertBefore(progressMessage, progressBar.nextSibling);
+
             progressBar.style.display = 'block';
             progressBarInner.style.width = '0%';
+            progressMessage.textContent = 'Starting...';
 
-            fetch('/process_video', {
-                method: 'POST'
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        const resultVideo = document.getElementById('resultVideo');
-                        resultVideo.src = 'data:video/mp4;base64,' + data.video;
-                        resultVideo.style.display = 'block';
-                        progressBarInner.style.width = '100%';
-                        console.log(`Processing completed in ${data.processing_time.toFixed(2)} seconds`);
-                        console.log(`Processed ${data.frame_count} frames at ${data.fps} FPS`);
-                    } else {
-                        alert('Error processing video: ' + data.error);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('Error processing video');
-                })
-                .finally(() => {
+            const eventSource = new EventSource('/process_video');
+            let videoData = null;
+
+            eventSource.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+
+                if (data.error) {
                     progressBar.style.display = 'none';
-                });
+                    progressMessage.textContent = '';
+                    alert('Error processing video: ' + data.error);
+                    eventSource.close();
+                    return;
+                }
+
+                if (data.progress !== undefined) {
+                    progressBarInner.style.width = data.progress + '%';
+                    progressMessage.textContent = data.message;
+                }
+
+                if (data.success) {
+                    videoData = data.video;
+                    progressBarInner.style.width = '100%';
+                    progressMessage.textContent = 'Processing completed!';
+
+                    // Create a blob from the base64 data
+                    const binaryData = atob(videoData);
+                    const arrayBuffer = new ArrayBuffer(binaryData.length);
+                    const uint8Array = new Uint8Array(arrayBuffer);
+                    for (let i = 0; i < binaryData.length; i++) {
+                        uint8Array[i] = binaryData.charCodeAt(i);
+                    }
+                    const blob = new Blob([uint8Array], { type: 'video/mp4' });
+                    const videoUrl = URL.createObjectURL(blob);
+
+                    const resultVideo = document.getElementById('resultVideo');
+                    resultVideo.src = videoUrl;
+                    resultVideo.style.display = 'block';
+
+                    console.log(`Processing completed in ${data.processing_time.toFixed(2)} seconds`);
+                    console.log(`Processed ${data.frame_count} frames at ${data.fps} FPS`);
+
+                    eventSource.close();
+                }
+            };
+
+            eventSource.onerror = function (error) {
+                console.error('EventSource failed:', error);
+                progressBar.style.display = 'none';
+                progressMessage.textContent = '';
+                alert('Error processing video: Connection failed');
+                eventSource.close();
+            };
         });
     </script>
 </body>

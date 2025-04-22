@@ -28,10 +28,11 @@ import io
 from PIL import Image
 import argparse
 import onnxruntime
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 import tempfile
 import shutil
 import time
+import json
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
@@ -171,109 +172,109 @@ def swap_faces():
 def process_video_route():
     global source_image, target_video, face_swapper
     
-    start_time = time.time()
-    logging.info("Starting video processing request")
-    
-    if source_image is None:
-        logging.error("Source image not found for video processing")
-        return jsonify({'error': 'Source image is required'}), 400
-    
-    if target_video is None:
-        logging.error("Target video not found for video processing")
-        return jsonify({'error': 'Target video is required'}), 400
-    
-    if face_swapper is None:
-        logging.error("Face swapper not initialized for video processing")
-        return jsonify({'error': 'Face swapper not initialized'}), 500
-    
-    logging.info(f"Processing video: {target_video}")
-    
-    # Get source face from source image
-    source_face = get_one_face(source_image)
-    if source_face is None:
-        logging.error("No face detected in source image")
-        return jsonify({'error': 'No face detected in source image'}), 400
-    
-    # Create a temporary directory for frames
-    temp_dir = tempfile.mkdtemp()
-    logging.info(f"Created temporary directory for frames: {temp_dir}")
-    
-    try:
-        # Extract frames from video
-        cap = cv2.VideoCapture(target_video)
-        frame_paths = []
-        frame_count = 0
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
+    def generate():
+        start_time = time.time()
+        logging.info("Starting video processing request")
         
-        logging.info(f"Video properties - Total frames: {total_frames}, FPS: {fps}")
-        
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-                
-            frame_path = os.path.join(temp_dir, f'frame_{frame_count:06d}.jpg')
-            cv2.imwrite(frame_path, frame)
-            frame_paths.append(frame_path)
-            frame_count += 1
+        if source_image is None:
+            yield json.dumps({'error': 'Source image is required'}) + '\n'
+            return
             
-            if frame_count % 10 == 0:  # Log every 10 frames
-                logging.info(f"Extracted frame {frame_count}/{total_frames}")
+        if target_video is None:
+            yield json.dumps({'error': 'Target video is required'}) + '\n'
+            return
             
-        cap.release()
-        logging.info(f"Finished extracting {frame_count} frames")
-        
-        # Process frames with face swapping
-        logging.info("Starting face swap processing on frames")
-        process_video(source_face, frame_paths)
-        logging.info("Face swap processing completed")
-        
-        # Create output video
-        output_path = os.path.join(temp_dir, 'output.mp4')
-        first_frame = cv2.imread(frame_paths[0])
-        height, width = first_frame.shape[:2]
-        
-        logging.info(f"Creating output video with dimensions: {width}x{height}")
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        
-        for i, frame_path in enumerate(frame_paths):
-            frame = cv2.imread(frame_path)
-            out.write(frame)
-            if i % 10 == 0:  # Log every 10 frames
-                logging.info(f"Writing frame {i+1}/{len(frame_paths)} to output video")
+        if face_swapper is None:
+            yield json.dumps({'error': 'Face swapper not initialized'}) + '\n'
+            return
             
-        out.release()
-        logging.info("Output video created successfully")
+        # Get source face from source image
+        source_face = get_one_face(source_image)
+        if source_face is None:
+            yield json.dumps({'error': 'No face detected in source image'}) + '\n'
+            return
+            
+        # Create a temporary directory for frames
+        temp_dir = tempfile.mkdtemp()
+        logging.info(f"Created temporary directory for frames: {temp_dir}")
         
-        # Read the output video and convert to base64
-        with open(output_path, 'rb') as f:
-            video_data = f.read()
-        video_base64 = base64.b64encode(video_data).decode('utf-8')
-        
-        processing_time = time.time() - start_time
-        logging.info(f"Video processing completed in {processing_time:.2f} seconds")
-        
-        return jsonify({
-            'success': True,
-            'video': video_base64,
-            'processing_time': processing_time,
-            'frame_count': frame_count,
-            'fps': fps
-        })
-        
-    except Exception as e:
-        logging.error(f"Error during video processing: {str(e)}", exc_info=True)
-        return jsonify({'error': f'Error processing video: {str(e)}'}), 500
-        
-    finally:
-        # Clean up temporary files
         try:
-            shutil.rmtree(temp_dir)
-            logging.info("Temporary files cleaned up")
+            # Extract frames from video
+            cap = cv2.VideoCapture(target_video)
+            frame_paths = []
+            frame_count = 0
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = int(cap.get(cv2.CAP_PROP_FPS))
+            
+            yield json.dumps({'progress': 0, 'stage': 'extracting', 'message': 'Extracting frames...'}) + '\n'
+            
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                    
+                frame_path = os.path.join(temp_dir, f'frame_{frame_count:06d}.jpg')
+                cv2.imwrite(frame_path, frame)
+                frame_paths.append(frame_path)
+                frame_count += 1
+                
+                if frame_count % 10 == 0:
+                    progress = int((frame_count / total_frames) * 33)
+                    yield json.dumps({'progress': progress, 'stage': 'extracting', 'message': f'Extracted {frame_count}/{total_frames} frames'}) + '\n'
+                
+            cap.release()
+            
+            # Process frames with face swapping
+            yield json.dumps({'progress': 33, 'stage': 'processing', 'message': 'Processing frames...'}) + '\n'
+            process_video(source_face, frame_paths)
+            
+            # Create output video
+            yield json.dumps({'progress': 66, 'stage': 'creating', 'message': 'Creating output video...'}) + '\n'
+            output_path = os.path.join(temp_dir, 'output.mp4')
+            first_frame = cv2.imread(frame_paths[0])
+            height, width = first_frame.shape[:2]
+            
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            
+            for i, frame_path in enumerate(frame_paths):
+                frame = cv2.imread(frame_path)
+                out.write(frame)
+                if i % 10 == 0:
+                    progress = 66 + int((i / len(frame_paths)) * 33)
+                    yield json.dumps({'progress': progress, 'stage': 'creating', 'message': f'Writing frame {i+1}/{len(frame_paths)}'}) + '\n'
+                
+            out.release()
+            
+            # Read the output video and convert to base64
+            with open(output_path, 'rb') as f:
+                video_data = f.read()
+            video_base64 = base64.b64encode(video_data).decode('utf-8')
+            
+            processing_time = time.time() - start_time
+            yield json.dumps({
+                'success': True,
+                'progress': 100,
+                'stage': 'complete',
+                'message': 'Processing completed',
+                'video': video_base64,
+                'processing_time': processing_time,
+                'frame_count': frame_count,
+                'fps': fps
+            }) + '\n'
+            
         except Exception as e:
-            logging.error(f"Error cleaning up temporary files: {str(e)}")
+            logging.error(f"Error during video processing: {str(e)}", exc_info=True)
+            yield json.dumps({'error': f'Error processing video: {str(e)}'}) + '\n'
+            
+        finally:
+            try:
+                shutil.rmtree(temp_dir)
+                logging.info("Temporary files cleaned up")
+            except Exception as e:
+                logging.error(f"Error cleaning up temporary files: {str(e)}")
+    
+    return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
     args = parse_args()
