@@ -1,6 +1,11 @@
 import sys
 import os
 import logging
+import cv2
+import gfpgan
+import torch
+import platform
+from modules.utilities import conditional_download
 
 # Add the project root to the Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -67,24 +72,55 @@ target_video = None
 face_swapper = None
 face_enhancer = None
 
-# Initialize face swapper and face enhancer at startup
-def initialize_face_swapper():
+# Define models directory
+models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+
+def initialize_models():
     global face_swapper, face_enhancer
-    logging.info("Initializing face swapper...")
+    
+    # Create models directory if it doesn't exist
+    os.makedirs(models_dir, exist_ok=True)
+    
+    # Download GFPGAN model if needed
+    conditional_download(
+        models_dir,
+        [
+            "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.4/GFPGANv1.4.pth"
+        ],
+    )
+    
+    logging.info("Initializing face swapper and face enhancer...")
     try:
-        # Initialize with default parameters, settings will be applied through globals
         face_swapper = get_face_swapper()
-        # Initialize face enhancer only if the model exists
-        try:
-            face_enhancer = get_face_enhancer()
-            logging.info("Successfully initialized face swapper and face enhancer")
-        except Exception as e:
-            logging.warning(f"Face enhancer initialization skipped: {str(e)}")
-            face_enhancer = None
+        
+        # Initialize face enhancer with platform-specific settings
+        model_path = os.path.join(models_dir, "GFPGANv1.4.pth")
+        if platform.system() == "Darwin" and torch.backends.mps.is_available():
+            mps_device = torch.device("mps")
+            face_enhancer = gfpgan.GFPGANer(model_path=model_path, upscale=1, device=mps_device)
+        else:
+            face_enhancer = gfpgan.GFPGANer(model_path=model_path, upscale=1)
+        
+        logging.info("Successfully initialized face swapper and face enhancer")
     except Exception as e:
-        logging.error(f"Error initializing face swapper: {str(e)}")
+        logging.error(f"Error initializing models: {str(e)}")
         face_swapper = None
         face_enhancer = None
+
+@app.before_first_request
+def before_first_request():
+    initialize_models()
+
+def enhance_face(frame):
+    global face_enhancer
+    if face_enhancer is not None:
+        try:
+            _, _, enhanced_frame = face_enhancer.enhance(frame, paste_back=True)
+            return enhanced_frame
+        except Exception as e:
+            logging.warning(f"Face enhancement failed: {str(e)}")
+            return frame
+    return frame
 
 @app.route('/')
 def index():
@@ -209,128 +245,107 @@ def swap_faces():
 
 @app.route('/process_video', methods=['GET', 'POST'])
 def process_video_route():
-    global source_image, target_video, face_swapper
+    global source_image, target_video, face_swapper, face_enhancer
     
     def generate():
-        start_time = time.time()
-        logging.info("Starting video processing request")
-        
-        if source_image is None:
-            yield json.dumps({'error': 'Source image is required'}) + '\n'
+        if not all([source_image, target_video, face_swapper]):
+            error_msg = json.dumps({"error": "Missing required variables"})
+            yield f"data: {error_msg}\n\n"
             return
-            
-        if target_video is None:
-            yield json.dumps({'error': 'Target video is required'}) + '\n'
-            return
-            
-        if face_swapper is None:
-            yield json.dumps({'error': 'Face swapper not initialized'}) + '\n'
-            return
-            
-        # Get source face from source image
-        source_face = get_one_face(source_image)
-        if source_face is None:
-            yield json.dumps({'error': 'No face detected in source image'}) + '\n'
-            return
-            
-        # Create a temporary directory for frames
-        temp_dir = tempfile.mkdtemp()
-        logging.info(f"Created temporary directory for frames: {temp_dir}")
-        
+
         try:
-            # Extract frames from video with optimized settings
-            cap = cv2.VideoCapture(target_video)
-            frame_paths = []
-            frame_count = 0
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            fps = int(cap.get(cv2.CAP_PROP_FPS))
-            
-            # Set video capture properties for better performance
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)  # Reduce buffer size
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'mp4v'))
-            
-            yield json.dumps({'progress': 0, 'stage': 'extracting', 'message': 'Extracting frames...'}) + '\n'
-            
-            # Process frames in batches for better GPU utilization
-            batch_size = 32  # Process 32 frames at a time
-            processed_frames = []
-            
-            while True:
-                frames = []
-                for _ in range(batch_size):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Extract frames
+                yield f"data: {json.dumps({'progress': 10, 'message': 'Extracting frames...'})}\n\n"
+                
+                cap = cv2.VideoCapture(target_video)
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                fps = int(cap.get(cv2.CAP_PROP_FPS))
+                
+                frame_paths = []
+                frame_count = 0
+                
+                while True:
                     ret, frame = cap.read()
                     if not ret:
                         break
-                    frames.append(frame)
-                
-                if not frames:
-                    break
-                
-                # Process batch of frames
-                for frame in frames:
-                    processed_frame = process_frame(source_face, frame)
-                    processed_frames.append(processed_frame)
+                    
+                    frame_path = os.path.join(temp_dir, f"frame_{frame_count:04d}.jpg")
+                    cv2.imwrite(frame_path, frame)
+                    frame_paths.append(frame_path)
                     frame_count += 1
                     
                     if frame_count % 10 == 0:
-                        progress = int((frame_count / total_frames) * 100)
-                        yield json.dumps({
-                            'progress': progress,
-                            'stage': 'processing',
-                            'message': f'Processed {frame_count}/{total_frames} frames'
-                        }) + '\n'
-            
-            cap.release()
-            
-            # Create output video with optimized settings
-            yield json.dumps({'progress': 90, 'stage': 'creating', 'message': 'Creating output video...'}) + '\n'
-            
-            # Generate unique filename
-            timestamp = int(time.time())
-            output_filename = f'output_{timestamp}.mp4'
-            output_path = os.path.join(videos_dir, output_filename)
-            
-            # Use the first processed frame to get dimensions
-            height, width = processed_frames[0].shape[:2]
-            
-            # Use hardware acceleration for video encoding
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
-            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-            
-            for frame in processed_frames:
-                out.write(frame)
-            
-            out.release()
-            
-            # Send completion message with video URL
-            video_url = f'/static/videos/{output_filename}'
-            processing_time = time.time() - start_time
-            
-            yield json.dumps({
-                'success': True,
-                'progress': 100,
-                'stage': 'complete',
-                'message': 'Processing completed',
-                'video_url': video_url,
-                'processing_time': processing_time,
-                'frame_count': frame_count,
-                'fps': fps,
-                'average_fps': frame_count / processing_time
-            }) + '\n'
-            
+                        progress = min(10 + (frame_count / total_frames * 40), 50)
+                        yield f"data: {json.dumps({'progress': progress, 'message': f'Extracted {frame_count}/{total_frames} frames...'})}\n\n"
+                
+                cap.release()
+                
+                # Process frames
+                yield f"data: {json.dumps({'progress': 50, 'message': 'Processing frames...'})}\n\n"
+                
+                source_face = get_one_face(source_image)
+                if source_face is None:
+                    error_msg = json.dumps({"error": "No face detected in source image"})
+                    yield f"data: {error_msg}\n\n"
+                    return
+                
+                processed_count = 0
+                for frame_path in frame_paths:
+                    frame = cv2.imread(frame_path)
+                    target_face = get_one_face(frame)
+                    
+                    if target_face:
+                        frame = swap_face(source_face, target_face, frame)
+                        frame = enhance_face(frame)
+                    
+                    cv2.imwrite(frame_path, frame)
+                    processed_count += 1
+                    
+                    if processed_count % 10 == 0:
+                        progress = min(50 + (processed_count / total_frames * 40), 90)
+                        yield f"data: {json.dumps({'progress': progress, 'message': f'Processed {processed_count}/{total_frames} frames...'})}\n\n"
+                
+                # Create output video
+                yield f"data: {json.dumps({'progress': 90, 'message': 'Creating output video...'})}\n\n"
+                
+                output_path = os.path.join(temp_dir, "output.mp4")
+                frame = cv2.imread(frame_paths[0])
+                height, width = frame.shape[:2]
+                
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+                
+                for frame_path in frame_paths:
+                    frame = cv2.imread(frame_path)
+                    out.write(frame)
+                
+                out.release()
+                
+                # Read the output video and convert to base64
+                with open(output_path, 'rb') as f:
+                    video_data = f.read()
+                    video_base64 = base64.b64encode(video_data).decode('utf-8')
+                
+                processing_time = time.time() - start_time
+                completion_data = {
+                    'success': True,
+                    'video_data': video_base64,
+                    'processing_time': processing_time,
+                    'frame_count': total_frames,
+                    'fps': fps,
+                    'progress': 100,
+                    'message': 'Processing complete!'
+                }
+                
+                yield f"data: {json.dumps(completion_data)}\n\n"
+                
         except Exception as e:
-            logging.error(f"Error during video processing: {str(e)}", exc_info=True)
-            yield json.dumps({'error': f'Error processing video: {str(e)}'}) + '\n'
-            
-        finally:
-            try:
-                shutil.rmtree(temp_dir)
-                logging.info("Temporary files cleaned up")
-            except Exception as e:
-                logging.error(f"Error cleaning up temporary files: {str(e)}")
+            error_msg = json.dumps({"error": str(e)})
+            yield f"data: {error_msg}\n\n"
+            logging.error(f"Error in video processing: {str(e)}")
     
     return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
-    initialize_face_swapper()
     app.run(host="0.0.0.0", debug=False) 
