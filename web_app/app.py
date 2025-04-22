@@ -10,11 +10,7 @@ print(f"Project root: {project_root}")
 
 # Import required modules
 import modules.globals
-from face_swapper import get_face_swapper, swap_face, process_frame, process_image
-
-# Import web-specific modules
-from flask import Flask, render_template, request, jsonify
-from flask_socketio import SocketIO, emit
+from face_swapper import get_face_swapper, swap_face, process_frame, process_image, process_video
 import cv2
 import numpy as np
 import base64
@@ -22,10 +18,13 @@ import io
 from PIL import Image
 import argparse
 import onnxruntime
+from flask import Flask, render_template, request, jsonify
+import tempfile
+import shutil
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
-socketio = SocketIO(app)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
 # Global variables
 source_image = None
@@ -123,37 +122,81 @@ def swap_faces():
         'result': result_base64
     })
 
-@socketio.on('connect')
-def handle_connect():
-    print('Client connected')
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print('Client disconnected')
-
-@socketio.on('process_frame')
-def handle_process_frame(data):
+@app.route('/process_video', methods=['POST'])
+def process_video_route():
     global source_image, face_swapper
     
-    if source_image is None or face_swapper is None:
-        return
+    if source_image is None:
+        return jsonify({'error': 'Source image is required'}), 400
     
-    # Decode the frame
-    frame_data = base64.b64decode(data['frame'])
-    frame_np = np.frombuffer(frame_data, dtype=np.uint8)
-    frame = cv2.imdecode(frame_np, cv2.IMREAD_COLOR)
+    if face_swapper is None:
+        return jsonify({'error': 'Face swapper not initialized'}), 500
     
-    # Process the frame with face swapping
-    result_frame = process_frame(source_image, frame)
+    if 'file' not in request.files:
+        return jsonify({'error': 'No video file part'}), 400
     
-    # Convert the processed frame back to base64 with high quality
-    _, buffer = cv2.imencode('.jpg', result_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
-    frame_base64 = base64.b64encode(buffer).decode('utf-8')
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
     
-    # Send the processed frame back to the client
-    emit('processed_frame', {'frame': frame_base64})
+    # Save the uploaded video to a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
+        file.save(temp_video.name)
+        temp_video_path = temp_video.name
+    
+    # Create a temporary directory for frames
+    temp_dir = tempfile.mkdtemp()
+    try:
+        # Extract frames from video
+        cap = cv2.VideoCapture(temp_video_path)
+        frame_paths = []
+        frame_count = 0
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            frame_path = os.path.join(temp_dir, f'frame_{frame_count:06d}.jpg')
+            cv2.imwrite(frame_path, frame)
+            frame_paths.append(frame_path)
+            frame_count += 1
+            
+        cap.release()
+        
+        # Process frames with face swapping
+        process_video(source_image, frame_paths)
+        
+        # Create output video
+        output_path = os.path.join(temp_dir, 'output.mp4')
+        first_frame = cv2.imread(frame_paths[0])
+        height, width = first_frame.shape[:2]
+        
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, 30.0, (width, height))
+        
+        for frame_path in frame_paths:
+            frame = cv2.imread(frame_path)
+            out.write(frame)
+            
+        out.release()
+        
+        # Read the output video and convert to base64
+        with open(output_path, 'rb') as f:
+            video_data = f.read()
+        video_base64 = base64.b64encode(video_data).decode('utf-8')
+        
+        return jsonify({
+            'success': True,
+            'video': video_base64
+        })
+        
+    finally:
+        # Clean up temporary files
+        os.unlink(temp_video_path)
+        shutil.rmtree(temp_dir)
 
 if __name__ == '__main__':
     args = parse_args()
     initialize_face_swapper()
-    socketio.run(app, host="0.0.0.0", debug=False) 
+    app.run(host="0.0.0.0", debug=False) 

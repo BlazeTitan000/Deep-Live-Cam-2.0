@@ -26,7 +26,7 @@
             margin: 0 auto;
         }
 
-        #videoElement {
+        #videoPreview {
             width: 100%;
             border-radius: 10px;
             background-color: #2d2d2d;
@@ -67,17 +67,38 @@
             text-align: center;
         }
 
-        #resultImage {
+        #resultImage,
+        #resultVideo {
             max-width: 100%;
             border-radius: 10px;
             display: none;
         }
 
-        #canvas {
-            display: block;
-            width: 100%;
-            border-radius: 10px;
+        .progress {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .nav-tabs {
+            border-bottom: 1px solid #444;
+        }
+
+        .nav-tabs .nav-link {
+            color: #fff;
+            border: 1px solid transparent;
+            border-top-left-radius: 0.25rem;
+            border-top-right-radius: 0.25rem;
+        }
+
+        .nav-tabs .nav-link:hover {
+            border-color: #444;
+            color: #0d6efd;
+        }
+
+        .nav-tabs .nav-link.active {
+            color: #0d6efd;
             background-color: #2d2d2d;
+            border-color: #444;
         }
     </style>
 </head>
@@ -86,97 +107,111 @@
     <div class="container">
         <h1 class="text-center mb-4">Deep-Live-Cam Web</h1>
 
-        <div class="video-container">
-            <video id="videoElement" autoplay playsinline></video>
-            <canvas id="canvas"></canvas>
-        </div>
+        <ul class="nav nav-tabs mb-4" id="myTab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="image-tab" data-bs-toggle="tab" data-bs-target="#image"
+                    type="button" role="tab">Image Face Swap</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="video-tab" data-bs-toggle="tab" data-bs-target="#video" type="button"
+                    role="tab">Video Face Swap</button>
+            </li>
+        </ul>
 
-        <div class="control-panel">
-            <div class="row">
-                <div class="col-md-6">
-                    <h4>Source Image</h4>
-                    <div class="mb-3">
-                        <input type="file" class="form-control" id="sourceImage" accept="image/*">
+        <div class="tab-content" id="myTabContent">
+            <!-- Image Face Swap Tab -->
+            <div class="tab-pane fade show active" id="image" role="tabpanel">
+                <div class="control-panel">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h4>Source Image</h4>
+                            <div class="mb-3">
+                                <input type="file" class="form-control" id="sourceImage" accept="image/*">
+                            </div>
+                            <img id="sourcePreview" class="preview-image" style="display: none;">
+                        </div>
+                        <div class="col-md-6">
+                            <h4>Target Image</h4>
+                            <div class="mb-3">
+                                <input type="file" class="form-control" id="targetImage" accept="image/*">
+                            </div>
+                            <img id="targetPreview" class="preview-image" style="display: none;">
+                        </div>
                     </div>
-                    <img id="sourcePreview" class="preview-image" style="display: none;">
+
+                    <div class="row mt-4">
+                        <div class="col-12 text-center">
+                            <button id="swapButton" class="btn btn-primary btn-lg">
+                                <i class="bi bi-arrow-repeat"></i> Swap Faces
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div class="col-md-6">
-                    <h4>Target Image</h4>
-                    <div class="mb-3">
-                        <input type="file" class="form-control" id="targetImage" accept="image/*">
-                    </div>
-                    <img id="targetPreview" class="preview-image" style="display: none;">
+
+                <div class="result-container">
+                    <h4>Result</h4>
+                    <img id="resultImage" class="preview-image">
                 </div>
             </div>
 
-            <div class="row mt-4">
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="keepFps">
-                        <label class="form-check-label" for="keepFps">Keep FPS</label>
+            <!-- Video Face Swap Tab -->
+            <div class="tab-pane fade" id="video" role="tabpanel">
+                <div class="control-panel">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h4>Source Image</h4>
+                            <div class="mb-3">
+                                <input type="file" class="form-control" id="sourceImageVideo" accept="image/*">
+                            </div>
+                            <img id="sourcePreviewVideo" class="preview-image" style="display: none;">
+                        </div>
+                        <div class="col-md-6">
+                            <h4>Target Video</h4>
+                            <div class="mb-3">
+                                <input type="file" class="form-control" id="targetVideo" accept="video/*">
+                            </div>
+                            <video id="videoPreview" class="preview-image" controls style="display: none;"></video>
+                        </div>
                     </div>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="keepAudio" checked>
-                        <label class="form-check-label" for="keepAudio">Keep Audio</label>
+
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="manyFaces">
+                                <label class="form-check-label" for="manyFaces">Many Faces</label>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="faceEnhancer">
+                                <label class="form-check-label" for="faceEnhancer">Face Enhancer</label>
+                            </div>
+                        </div>
                     </div>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="manyFaces">
-                        <label class="form-check-label" for="manyFaces">Many Faces</label>
+
+                    <div class="row mt-4">
+                        <div class="col-12 text-center">
+                            <button id="processButton" class="btn btn-primary btn-lg">
+                                <i class="bi bi-arrow-repeat"></i> Process Video
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+                            style="width: 0%"></div>
                     </div>
                 </div>
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="mouthMask">
-                        <label class="form-check-label" for="mouthMask">Mouth Mask</label>
-                    </div>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="nsfwFilter">
-                        <label class="form-check-label" for="nsfwFilter">NSFW Filter</label>
-                    </div>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="faceEnhancer">
-                        <label class="form-check-label" for="faceEnhancer">Face Enhancer</label>
-                    </div>
+
+                <div class="result-container">
+                    <h4>Result</h4>
+                    <video id="resultVideo" class="preview-image" controls></video>
                 </div>
             </div>
-
-            <div class="row mt-4">
-                <div class="col-12 text-center">
-                    <button id="startButton" class="btn btn-primary btn-lg me-2">
-                        <i class="bi bi-camera-video"></i> Start Camera
-                    </button>
-                    <button id="swapButton" class="btn btn-primary btn-lg">
-                        <i class="bi bi-arrow-repeat"></i> Swap Faces
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <div class="result-container">
-            <h4>Result</h4>
-            <img id="resultImage" class="preview-image">
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
-        const socket = io();
-        const videoElement = document.getElementById('videoElement');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const startButton = document.getElementById('startButton');
-        const swapButton = document.getElementById('swapButton');
-        const resultImage = document.getElementById('resultImage');
-        let stream = null;
-        let isCameraRunning = false;
-        let animationFrameId = null;
-
-        // Set canvas dimensions
-        canvas.width = 960;
-        canvas.height = 540;
-
-        // Handle source image upload
+        // Image Face Swap
         document.getElementById('sourceImage').addEventListener('change', function (e) {
             const file = e.target.files[0];
             if (file) {
@@ -201,7 +236,6 @@
             }
         });
 
-        // Handle target image upload
         document.getElementById('targetImage').addEventListener('change', function (e) {
             const file = e.target.files[0];
             if (file) {
@@ -226,96 +260,92 @@
             }
         });
 
-        // Handle face swapping
-        swapButton.addEventListener('click', function () {
+        document.getElementById('swapButton').addEventListener('click', function () {
             fetch('/swap_faces', {
                 method: 'POST'
             })
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        resultImage.src = 'data:image/jpeg;base64,' + data.result;
-                        resultImage.style.display = 'block';
+                        document.getElementById('resultImage').src = 'data:image/jpeg;base64,' + data.result;
+                        document.getElementById('resultImage').style.display = 'block';
                     } else {
                         alert('Error: ' + data.error);
                     }
                 });
         });
 
-        // Process and send frame
-        function processFrame() {
-            if (!isCameraRunning) return;
+        // Video Face Swap
+        document.getElementById('sourceImageVideo').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                const formData = new FormData();
+                formData.append('file', file);
 
-            // Draw current frame to canvas
-            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-
-            // Get image data from canvas
-            const imageData = canvas.toDataURL('image/jpeg', 0.95);
-
-            // Send frame to server
-            socket.emit('process_frame', {
-                frame: imageData.split(',')[1] // Remove data URL prefix
-            });
-
-            // Continue processing frames
-            animationFrameId = requestAnimationFrame(processFrame);
-        }
-
-        // Handle camera start/stop
-        startButton.addEventListener('click', async function () {
-            if (!isCameraRunning) {
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    videoElement.srcObject = stream;
-                    isCameraRunning = true;
-                    startButton.innerHTML = '<i class="bi bi-stop-circle"></i> Stop Camera';
-                    processFrame();
-                } catch (err) {
-                    console.error('Error accessing camera:', err);
-                    alert('Error accessing camera: ' + err.message);
-                }
-            } else {
-                if (stream) {
-                    stream.getTracks().forEach(track => track.stop());
-                }
-                if (animationFrameId) {
-                    cancelAnimationFrame(animationFrameId);
-                }
-                isCameraRunning = false;
-                startButton.innerHTML = '<i class="bi bi-camera-video"></i> Start Camera';
+                fetch('/upload_source', {
+                    method: 'POST',
+                    body: formData
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            const reader = new FileReader();
+                            reader.onload = function (e) {
+                                document.getElementById('sourcePreviewVideo').src = e.target.result;
+                                document.getElementById('sourcePreviewVideo').style.display = 'block';
+                            }
+                            reader.readAsDataURL(file);
+                        }
+                    });
             }
         });
 
-        // Handle settings changes
-        document.querySelectorAll('.form-check-input').forEach(checkbox => {
-            checkbox.addEventListener('change', function () {
-                const settings = {
-                    keep_fps: document.getElementById('keepFps').checked,
-                    keep_audio: document.getElementById('keepAudio').checked,
-                    many_faces: document.getElementById('manyFaces').checked,
-                    mouth_mask: document.getElementById('mouthMask').checked,
-                    nsfw_filter: document.getElementById('nsfwFilter').checked,
-                    frame_processors: ['face_swapper']
-                };
-
-                if (document.getElementById('faceEnhancer').checked) {
-                    settings.frame_processors.push('face_enhancer');
-                }
-
-                socket.emit('update_settings', settings);
-            });
+        document.getElementById('targetVideo').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                const videoPreview = document.getElementById('videoPreview');
+                videoPreview.src = URL.createObjectURL(file);
+                videoPreview.style.display = 'block';
+            }
         });
 
-        // Handle processed frames from server
-        socket.on('processed_frame', function (data) {
-            const img = new Image();
-            img.onload = function () {
-                // Clear the canvas
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                // Draw the processed frame
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            };
-            img.src = 'data:image/jpeg;base64,' + data.frame;
+        document.getElementById('processButton').addEventListener('click', function () {
+            const sourceImage = document.getElementById('sourceImageVideo').files[0];
+            const targetVideo = document.getElementById('targetVideo').files[0];
+
+            if (!sourceImage || !targetVideo) {
+                alert('Please select both source image and target video');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', targetVideo);
+
+            // Show progress bar
+            const progressBar = document.querySelector('.progress');
+            const progressBarInner = document.querySelector('.progress-bar');
+            progressBar.style.display = 'block';
+            progressBarInner.style.width = '0%';
+
+            fetch('/process_video', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const resultVideo = document.getElementById('resultVideo');
+                        resultVideo.src = 'data:video/mp4;base64,' + data.video;
+                        resultVideo.style.display = 'block';
+                        progressBarInner.style.width = '100%';
+                    } else {
+                        alert('Error processing video: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error processing video');
+                });
         });
     </script>
 </body>
