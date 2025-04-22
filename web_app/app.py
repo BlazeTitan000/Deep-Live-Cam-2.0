@@ -109,20 +109,19 @@ def swap_faces():
     if face_swapper is None:
         return jsonify({'error': 'Face swapper not initialized'}), 500
     
-    try:
-        # Process the target image with face swapping
-        result_image = process_image(source_image, target_image)
-        
-        # Convert directly to JPEG without PIL intermediate
-        _, buffer = cv2.imencode('.jpg', result_image, [cv2.IMWRITE_JPEG_QUALITY, 95])
-        result_base64 = base64.b64encode(buffer).decode('utf-8')
-        
-        return jsonify({
-            'success': True,
-            'result': result_base64
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    # Process the target image with face swapping
+    result_image = process_image(source_image, target_image)
+    
+    # Convert the result to base64 with high quality
+    result_pil = Image.fromarray(result_image)
+    buffered = io.BytesIO()
+    result_pil.save(buffered, format="JPEG", quality=95)
+    result_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+    
+    return jsonify({
+        'success': True,
+        'result': result_base64
+    })
 
 @socketio.on('connect')
 def handle_connect():
@@ -139,24 +138,20 @@ def handle_process_frame(data):
     if source_image is None or face_swapper is None:
         return
     
-    try:
-        # Decode the frame directly to numpy array
-        frame_data = base64.b64decode(data['frame'])
-        frame_np = np.frombuffer(frame_data, dtype=np.uint8)
-        frame = cv2.imdecode(frame_np, cv2.IMREAD_COLOR)
-        
-        # Process the frame with face swapping
-        result_frame = process_frame(source_image, frame)
-        
-        # Convert directly to JPEG without PIL intermediate
-        _, buffer = cv2.imencode('.jpg', result_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
-        frame_base64 = base64.b64encode(buffer).decode('utf-8')
-        
-        # Send the processed frame back to the client
-        emit('processed_frame', {'frame': frame_base64})
-    except Exception as e:
-        print(f"Error processing frame: {str(e)}")
-        return
+    # Decode the frame
+    frame_data = base64.b64decode(data['frame'])
+    frame_np = np.frombuffer(frame_data, dtype=np.uint8)
+    frame = cv2.imdecode(frame_np, cv2.IMREAD_COLOR)
+    
+    # Process the frame with face swapping
+    result_frame = process_frame(source_image, frame)
+    
+    # Convert the processed frame back to base64 with high quality
+    _, buffer = cv2.imencode('.jpg', result_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    frame_base64 = base64.b64encode(buffer).decode('utf-8')
+    
+    # Send the processed frame back to the client
+    emit('processed_frame', {'frame': frame_base64})
 
 if __name__ == '__main__':
     args = parse_args()
