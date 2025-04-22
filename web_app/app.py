@@ -34,6 +34,12 @@ import shutil
 import time
 import json
 
+# Set ONNX runtime execution providers to use CUDA only
+onnxruntime.set_default_logger_severity(3)  # Reduce logging
+providers = ['CUDAExecutionProvider']  # Use CUDA only
+session_options = onnxruntime.SessionOptions()
+session_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
@@ -50,28 +56,7 @@ source_image = None
 target_image = None
 target_video = None
 face_swapper = None
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--execution-provider', 
-                       help='execution provider',
-                       dest='execution_provider',
-                       default=['cuda'],
-                       choices=['cpu', 'cuda', 'dml', 'rocm', 'coreml'],
-                       nargs='+')
-    args = parser.parse_args()
-    
-    # Set execution providers
-    modules.globals.execution_providers = decode_execution_providers(args.execution_provider)
-    logging.info(f"Using execution providers: {modules.globals.execution_providers}")
-    return args
-
-def decode_execution_providers(execution_providers: list) -> list:
-    return [provider for provider, encoded_execution_provider in zip(onnxruntime.get_available_providers(), encode_execution_providers(onnxruntime.get_available_providers()))
-            if any(execution_provider in encoded_execution_provider for execution_provider in execution_providers)]
-
-def encode_execution_providers(execution_providers: list) -> list:
-    return [execution_provider.replace('ExecutionProvider', '').lower() for execution_provider in execution_providers]
+face_enhancer = None
 
 # Initialize face swapper at startup
 def initialize_face_swapper():
@@ -295,6 +280,5 @@ def process_video_route():
     return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
-    args = parse_args()
     initialize_face_swapper()
     app.run(host="0.0.0.0", debug=False) 
