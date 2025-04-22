@@ -155,4 +155,4 @@ def handle_update_settings(settings):
 
 if __name__ == '__main__':
     parse_args()
-    socketio.run(app, debug=True) 
+    socketio.run(app, host="0.0.0.0", debug=False) 
