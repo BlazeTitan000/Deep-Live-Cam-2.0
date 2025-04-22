@@ -34,6 +34,9 @@ import tempfile
 import shutil
 import time
 import json
+from modules.face_analyser import get_one_face, get_many_faces
+from modules.processors.frame.face_swapper import get_face_swapper, swap_face
+from modules.processors.frame.face_enhancer import get_face_enhancer, enhance_face
 
 # Set ONNX runtime execution providers to use CUDA only
 onnxruntime.set_default_logger_severity(3)  # Reduce logging
@@ -71,10 +74,15 @@ def initialize_face_swapper():
     try:
         # Initialize with default parameters, settings will be applied through globals
         face_swapper = get_face_swapper()
-        face_enhancer = get_face_enhancer()
-        logging.info("Successfully initialized face swapper and face enhancer with optimized CUDA settings")
+        # Initialize face enhancer only if the model exists
+        try:
+            face_enhancer = get_face_enhancer()
+            logging.info("Successfully initialized face swapper and face enhancer")
+        except Exception as e:
+            logging.warning(f"Face enhancer initialization skipped: {str(e)}")
+            face_enhancer = None
     except Exception as e:
-        logging.error(f"Error initializing face swapper or face enhancer: {str(e)}")
+        logging.error(f"Error initializing face swapper: {str(e)}")
         face_swapper = None
         face_enhancer = None
 
@@ -173,7 +181,13 @@ def swap_faces():
         # Process the image with face swapping
         result_image = swap_face(source_face, target_face, target_image)
         
-        result_image = enhance_face(result_image)
+        # Apply face enhancement if available and enabled
+        if face_enhancer is not None:
+            try:
+                result_image = enhance_face(result_image)
+                logging.info("Face enhancement applied successfully")
+            except Exception as e:
+                logging.warning(f"Face enhancement failed: {str(e)}")
         
         # Convert the result to base64 with optimized settings
         result_pil = Image.fromarray(result_image)
