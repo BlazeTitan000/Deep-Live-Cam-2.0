@@ -21,6 +21,7 @@ print(f"Project root: {project_root}")
 # Import required modules
 import modules.globals
 from face_swapper import get_face_swapper, swap_face, process_frame, process_image, process_video, get_one_face
+from modules.processors.frame.face_enhancer import get_face_enhancer, enhance_face
 import cv2
 import numpy as np
 import base64
@@ -63,17 +64,19 @@ target_video = None
 face_swapper = None
 face_enhancer = None
 
-# Initialize face swapper at startup
+# Initialize face swapper and face enhancer at startup
 def initialize_face_swapper():
-    global face_swapper
+    global face_swapper, face_enhancer
     logging.info("Initializing face swapper...")
     try:
         # Initialize with default parameters, settings will be applied through globals
         face_swapper = get_face_swapper()
-        logging.info("Successfully initialized face swapper with optimized CUDA settings")
+        face_enhancer = get_face_enhancer()
+        logging.info("Successfully initialized face swapper and face enhancer with optimized CUDA settings")
     except Exception as e:
-        logging.error(f"Error initializing face swapper: {str(e)}")
+        logging.error(f"Error initializing face swapper or face enhancer: {str(e)}")
         face_swapper = None
+        face_enhancer = None
 
 @app.route('/')
 def index():
@@ -140,7 +143,7 @@ def upload_target_video():
 
 @app.route('/swap_faces', methods=['POST'])
 def swap_faces():
-    global source_image, target_image, face_swapper
+    global source_image, target_image, face_swapper, face_enhancer
     
     if source_image is None or target_image is None:
         logging.error("Missing source or target image for face swap")
@@ -169,6 +172,8 @@ def swap_faces():
         
         # Process the image with face swapping
         result_image = swap_face(source_face, target_face, target_image)
+        
+        result_image = enhance_face(result_image)
         
         # Convert the result to base64 with optimized settings
         result_pil = Image.fromarray(result_image)
