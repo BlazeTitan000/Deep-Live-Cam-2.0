@@ -376,10 +376,13 @@
                         return;
                     }
 
+                    // Update progress bar for all stages
                     if (data.progress !== undefined) {
-                        progressBarInner.style.width = data.progress + '%';
-                        progressMessage.textContent = data.message;
-                        console.log('Progress:', data.progress, data.message);
+                        const progress = Math.min(100, Math.max(0, data.progress));
+                        progressBarInner.style.width = progress + '%';
+                        progressBarInner.setAttribute('aria-valuenow', progress);
+                        progressMessage.textContent = data.message || 'Processing...';
+                        console.log('Progress updated:', progress, data.message);
                     }
 
                     if (data.stage === 'transfer') {
@@ -395,6 +398,10 @@
                         if (data.video_chunk) {
                             videoData += data.video_chunk;
                             receivedChunks++;
+                            const transferProgress = 90 + (receivedChunks / totalChunks) * 10;
+                            progressBarInner.style.width = transferProgress + '%';
+                            progressBarInner.setAttribute('aria-valuenow', transferProgress);
+                            progressMessage.textContent = `Transferring video data (${receivedChunks}/${totalChunks})`;
                             console.log(`Received chunk ${receivedChunks}/${totalChunks}, current data length: ${videoData.length}`);
 
                             if (receivedChunks === totalChunks) {
@@ -405,6 +412,9 @@
                     }
 
                     if (data.success && data.stage === 'complete') {
+                        progressBarInner.style.width = '100%';
+                        progressBarInner.setAttribute('aria-valuenow', 100);
+                        progressMessage.textContent = 'Processing completed!';
                         console.log('Processing completed successfully');
                         eventSource.close();
                     }
@@ -446,6 +456,7 @@
                     resultVideo.onloadeddata = function () {
                         console.log('Video loaded successfully');
                         progressBarInner.style.width = '100%';
+                        progressBarInner.setAttribute('aria-valuenow', 100);
                         progressMessage.textContent = 'Processing completed!';
                     };
 
