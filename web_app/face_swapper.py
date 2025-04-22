@@ -5,6 +5,15 @@ import insightface
 import threading
 import numpy as np
 
+# Import modules for execution providers
+import modules.globals
+
+# Import custom types from modules
+from modules.typing import Face, Frame
+from modules.utilities import is_image, is_video
+from modules.face_analyser import default_source_face
+from modules.cluster_analysis import find_closest_centroid
+
 FACE_SWAPPER = None
 THREAD_LOCK = threading.Lock()
 
@@ -35,13 +44,13 @@ def get_face_swapper() -> Any:
 
             # Load the chosen model
             try:
-                FACE_SWAPPER = insightface.model_zoo.get_model(chosen_model_path)
+                FACE_SWAPPER = insightface.model_zoo.get_model(chosen_model_path, providers=modules.globals.execution_providers)
             except Exception as e:
                 print(f"Error loading Face Swapper model {os.path.basename(chosen_model_path)}: {e}")
                 raise e
     return FACE_SWAPPER
 
-def get_one_face(frame: np.ndarray) -> Any:
+def get_one_face(frame: Frame) -> Face:
     """Get one face from the frame using insightface."""
     try:
         face_analyser = insightface.app.FaceAnalysis(name='buffalo_l')
@@ -54,7 +63,7 @@ def get_one_face(frame: np.ndarray) -> Any:
         print(f"Error in get_one_face: {e}")
         return None
 
-def get_many_faces(frame: np.ndarray) -> List[Any]:
+def get_many_faces(frame: Frame) -> List[Face]:
     """Get multiple faces from the frame using insightface."""
     try:
         face_analyser = insightface.app.FaceAnalysis(name='buffalo_l')
@@ -65,14 +74,14 @@ def get_many_faces(frame: np.ndarray) -> List[Any]:
         print(f"Error in get_many_faces: {e}")
         return []
 
-def swap_face(source_face: Any, target_face: Any, temp_frame: np.ndarray) -> np.ndarray:
+def swap_face(source_face: Face, target_face: Face, temp_frame: Frame) -> Frame:
     swapper = get_face_swapper()
     if swapper is None:
         print("Face swapper model not loaded, skipping swap.")
         return temp_frame
     return swapper.get(temp_frame, target_face, source_face, paste_back=True)
 
-def process_frame(source_face: Any, temp_frame: np.ndarray, many_faces: bool = False) -> np.ndarray:
+def process_frame(source_face: Face, temp_frame: Frame, many_faces: bool = False) -> Frame:
     """Process a single frame with face swapping."""
     if many_faces:
         target_faces = get_many_faces(temp_frame)
@@ -85,7 +94,7 @@ def process_frame(source_face: Any, temp_frame: np.ndarray, many_faces: bool = F
             temp_frame = swap_face(source_face, target_face, temp_frame)
     return temp_frame
 
-def process_image(source_image: np.ndarray, target_image: np.ndarray) -> np.ndarray:
+def process_image(source_image: Frame, target_image: Frame) -> Frame:
     """Process an image with face swapping."""
     # Get source face
     source_face = get_one_face(source_image)
@@ -96,52 +105,104 @@ def process_image(source_image: np.ndarray, target_image: np.ndarray) -> np.ndar
     # Process the target image
     return process_frame(source_face, target_image)
 
-def process_video(source_image: np.ndarray, video_path: str, output_path: str, many_faces: bool = False) -> None:
+def process_video(source_path: str, temp_frame_paths: List[str]) -> None:
     """Process a video with face swapping."""
-    # Get source face
-    source_face = get_one_face(source_image)
-    if source_face is None:
-        print("No face detected in source image")
-        return
+    if modules.globals.map_faces and modules.globals.many_faces:
+        print('Many faces enabled. Using first source image (if applicable in v2). Processing...')
+    # Delegate to core video processing
+    modules.processors.frame.core.process_video(source_path, temp_frame_paths, process_frames)
 
-    # Open video
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"Error opening video file: {video_path}")
-        return
-
-    # Get video properties
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    # Create video writer
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-
-    frame_count = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # Process frame
-        processed_frame = process_frame(source_face, frame, many_faces)
-        
-        # Write processed frame
-        out.write(processed_frame)
-        
-        # Print progress
-        frame_count += 1
-        if frame_count % 10 == 0:
-            print(f"Processed {frame_count}/{total_frames} frames")
-
-    # Release resources
-    cap.release()
-    out.release()
-    print(f"Video processing complete. Output saved to: {output_path}")
-
-def process_video_frame(source_face: Any, frame: np.ndarray, many_faces: bool = False) -> np.ndarray:
+def process_video_frame(source_face: Face, frame: Frame, many_faces: bool = False) -> Frame:
     """Process a single video frame with face swapping."""
-    return process_frame(source_face, frame, many_faces) 
+    return process_frame(source_face, frame, many_faces)
+
+def process_frames(source_path: str, temp_frame_paths: List[str], progress: Any = None) -> None:
+    """Process multiple frames with face swapping."""
+    # Note: Ensure get_one_face is called only once if possible for efficiency if !map_faces
+    source_face = None
+    if not modules.globals.map_faces:
+        source_img = cv2.imread(source_path)
+        if source_img is None:
+            print(f"Could not read source image: {source_path}, skipping swap.")
+            return
+        source_face = get_one_face(source_img)
+        if source_face is None:
+            print(f"Could not find face in source image: {source_path}, skipping swap.")
+            return
+
+    for temp_frame_path in temp_frame_paths:
+        temp_frame = cv2.imread(temp_frame_path)
+        if temp_frame is None:
+            print(f"Warning: Could not read frame {temp_frame_path}")
+            if progress: progress.update(1)
+            continue
+
+        try:
+            if not modules.globals.map_faces:
+                if source_face: # Only process if source face was found
+                    result = process_frame(source_face, temp_frame)
+                else:
+                    result = temp_frame # No source face, return original frame
+            else:
+                result = process_frame_v2(temp_frame, temp_frame_path)
+
+            cv2.imwrite(temp_frame_path, result)
+        except Exception as exception:
+            print(f"Error processing frame {os.path.basename(temp_frame_path)}: {exception}")
+            pass # Continue processing other frames
+        finally:
+            if progress:
+                progress.update(1) 
+
+def process_frame_v2(temp_frame: Frame, temp_frame_path: str = "") -> Frame:
+    """Process a frame with face mapping support."""
+    if is_image(modules.globals.target_path):
+        if modules.globals.many_faces:
+            source_face = default_source_face()
+            for map_entry in modules.globals.souce_target_map:
+                target_face = map_entry['target']['face']
+                temp_frame = swap_face(source_face, target_face, temp_frame)
+        elif not modules.globals.many_faces:
+            for map_entry in modules.globals.souce_target_map:
+                if "source" in map_entry:
+                    source_face = map_entry['source']['face']
+                    target_face = map_entry['target']['face']
+                    temp_frame = swap_face(source_face, target_face, temp_frame)
+    elif is_video(modules.globals.target_path):
+        if modules.globals.many_faces:
+            source_face = default_source_face()
+            for map_entry in modules.globals.souce_target_map:
+                target_frame = [f for f in map_entry['target_faces_in_frame'] if f['location'] == temp_frame_path]
+                for frame in target_frame:
+                    for target_face in frame['faces']:
+                        temp_frame = swap_face(source_face, target_face, temp_frame)
+        elif not modules.globals.many_faces:
+            for map_entry in modules.globals.souce_target_map:
+                if "source" in map_entry:
+                    target_frame = [f for f in map_entry['target_faces_in_frame'] if f['location'] == temp_frame_path]
+                    source_face = map_entry['source']['face']
+                    for frame in target_frame:
+                        for target_face in frame['faces']:
+                            temp_frame = swap_face(source_face, target_face, temp_frame)
+    else: # Fallback for neither image nor video (e.g., live feed?)
+        detected_faces = get_many_faces(temp_frame)
+        if modules.globals.many_faces:
+            if detected_faces:
+                source_face = default_source_face()
+                for target_face in detected_faces:
+                    temp_frame = swap_face(source_face, target_face, temp_frame)
+        elif not modules.globals.many_faces:
+            if detected_faces and hasattr(modules.globals, 'simple_map') and modules.globals.simple_map:
+                if len(detected_faces) <= len(modules.globals.simple_map['target_embeddings']):
+                    for detected_face in detected_faces:
+                        closest_centroid_index, _ = find_closest_centroid(modules.globals.simple_map['target_embeddings'], detected_face.normed_embedding)
+                        temp_frame = swap_face(modules.globals.simple_map['source_faces'][closest_centroid_index], detected_face, temp_frame)
+                else:
+                    detected_faces_centroids = [face.normed_embedding for face in detected_faces]
+                    i = 0
+                    for target_embedding in modules.globals.simple_map['target_embeddings']:
+                        closest_centroid_index, _ = find_closest_centroid(detected_faces_centroids, target_embedding)
+                        if closest_centroid_index < len(detected_faces):
+                            temp_frame = swap_face(modules.globals.simple_map['source_faces'][i], detected_faces[closest_centroid_index], temp_frame)
+                        i += 1
+    return temp_frame 
