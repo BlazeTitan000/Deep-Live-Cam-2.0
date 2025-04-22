@@ -11,11 +11,17 @@ import numpy as np
 import base64
 import io
 from PIL import Image
-import modules.core as core
 import modules.globals
 from modules.processors.frame.core import get_frame_processors_modules
 import argparse
 import onnxruntime
+
+# Initialize globals without UI dependencies
+modules.globals.keep_fps = True
+modules.globals.keep_audio = True
+modules.globals.many_faces = False
+modules.globals.mouth_mask = False
+modules.globals.nsfw_filter = False
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
