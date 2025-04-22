@@ -44,6 +44,7 @@ def parse_args():
     
     # Set execution providers
     modules.globals.execution_providers = decode_execution_providers(args.execution_provider)
+    return args
 
 def encode_execution_providers(execution_providers: list) -> list:
     return [execution_provider.replace('ExecutionProvider', '').lower() for execution_provider in execution_providers]
@@ -51,6 +52,16 @@ def encode_execution_providers(execution_providers: list) -> list:
 def decode_execution_providers(execution_providers: list) -> list:
     return [provider for provider, encoded_execution_provider in zip(onnxruntime.get_available_providers(), encode_execution_providers(onnxruntime.get_available_providers()))
             if any(execution_provider in encoded_execution_provider for execution_provider in execution_providers)]
+
+# Initialize frame processors at startup
+def initialize_frame_processors():
+    global frame_processors
+    modules.globals.keep_fps = True
+    modules.globals.keep_audio = True
+    modules.globals.many_faces = False
+    modules.globals.mouth_mask = False
+    modules.globals.nsfw_filter = False
+    frame_processors = get_frame_processors_modules(['face_swapper'])
 
 @app.route('/')
 def index():
@@ -154,5 +165,6 @@ def handle_update_settings(settings):
     frame_processors = get_frame_processors_modules(settings.get('frame_processors', ['face_swapper']))
 
 if __name__ == '__main__':
-    parse_args()
+    args = parse_args()
+    initialize_frame_processors()  # Initialize frame processors before starting the server
     socketio.run(app, host="0.0.0.0", debug=False) 
