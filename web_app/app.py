@@ -156,10 +156,19 @@ def swap_faces():
         # Get source face with optimized settings
         source_face = get_one_face(source_image)
         if source_face is None:
+            logging.error("No face detected in source image")
             return jsonify({'error': 'No face detected in source image'}), 400
+        logging.info(f"Source face detected with confidence: {source_face.get('det_score', 'unknown')}")
+        
+        # Get target face
+        target_face = get_one_face(target_image)
+        if target_face is None:
+            logging.error("No face detected in target image")
+            return jsonify({'error': 'No face detected in target image'}), 400
+        logging.info(f"Target face detected with confidence: {target_face.get('det_score', 'unknown')}")
         
         # Process the image with face swapping
-        result_image = process_image(source_face, target_image)
+        result_image = swap_face(source_face, target_face, target_image)
         
         # Convert the result to base64 with optimized settings
         result_pil = Image.fromarray(result_image)

@@ -20,23 +20,29 @@ def get_face_analyser() -> Any:
 
     if FACE_ANALYSER is None:
         FACE_ANALYSER = insightface.app.FaceAnalysis(name='buffalo_l', providers=modules.globals.execution_providers)
-        FACE_ANALYSER.prepare(ctx_id=0, det_size=(640, 640))
+        FACE_ANALYSER.prepare(ctx_id=0, det_size=(1024, 1024))
     return FACE_ANALYSER
 
 
 def get_one_face(frame: Frame) -> Any:
-    face = get_face_analyser().get(frame)
-    try:
-        return min(face, key=lambda x: x.bbox[0])
-    except ValueError:
+    faces = get_face_analyser().get(frame)
+    if not faces:
         return None
+    
+    best_face = max(faces, key=lambda x: x.det_score)
+    
+    if best_face.det_score < 0.5:
+        return None
+        
+    return best_face
 
 
 def get_many_faces(frame: Frame) -> Any:
-    try:
-        return get_face_analyser().get(frame)
-    except IndexError:
+    faces = get_face_analyser().get(frame)
+    if not faces:
         return None
+        
+    return [face for face in faces if face.det_score >= 0.5]
 
 def has_valid_map() -> bool:
     for map in modules.globals.source_target_map:
