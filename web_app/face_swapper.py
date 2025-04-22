@@ -22,7 +22,7 @@ THREAD_LOCK = threading.Lock()
 def get_face_analyser() -> Any:
     global FACE_ANALYSER
     if FACE_ANALYSER is None:
-        FACE_ANALYSER = insightface.app.FaceAnalysis(name='buffalo_l')
+        FACE_ANALYSER = insightface.app.FaceAnalysis(name='buffalo_l', providers=modules.globals.execution_providers)
         FACE_ANALYSER.prepare(ctx_id=0, det_size=(640, 640))
     return FACE_ANALYSER
 
@@ -37,7 +37,7 @@ def get_face_swapper() -> Any:
             model_path_fp16 = os.path.join(model_dir, 'inswapper_128_fp16.onnx')
             chosen_model_path = None
 
-            # Prioritize FP32 model
+            # Prioritize FP32 model for better quality
             if os.path.exists(model_path_fp32):
                 chosen_model_path = model_path_fp32
                 print(f"Loading FP32 model: {os.path.basename(chosen_model_path)}")
@@ -64,7 +64,8 @@ def get_one_face(frame: Frame) -> Face:
         face_analyser = get_face_analyser()
         faces = face_analyser.get(frame)
         if faces:
-            return faces[0]
+            # Select the face with the highest detection score
+            return max(faces, key=lambda x: x.det_score)
         return None
     except Exception as e:
         print(f"Error in get_one_face: {e}")
