@@ -111,10 +111,10 @@ def swap_faces():
     # Process the target image with face swapping
     result_image = process_image(source_image, target_image)
     
-    # Convert the result to base64
+    # Convert the result to base64 with high quality
     result_pil = Image.fromarray(result_image)
     buffered = io.BytesIO()
-    result_pil.save(buffered, format="JPEG")
+    result_pil.save(buffered, format="JPEG", quality=95)
     result_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
     
     return jsonify({

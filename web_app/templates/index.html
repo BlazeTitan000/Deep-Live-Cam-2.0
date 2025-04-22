@@ -169,8 +169,8 @@
         let animationFrameId = null;
 
         // Set canvas dimensions
-        canvas.width = 640;
-        canvas.height = 480;
+        canvas.width = 960;
+        canvas.height = 540;
 
         // Handle source image upload
         document.getElementById('sourceImage').addEventListener('change', function (e) {
@@ -304,7 +304,12 @@
 
         // Handle processed frames from server
         socket.on('processed_frame', function (data) {
-            videoElement.src = 'data:image/jpeg;base64,' + data.frame;
+            const img = new Image();
+            img.onload = function () {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                videoElement.src = canvas.toDataURL('image/jpeg', 0.95);
+            };
+            img.src = 'data:image/jpeg;base64,' + data.frame;
         });
     </script>
 </body>
