@@ -39,14 +39,32 @@ onnxruntime.set_default_logger_severity(3)  # Reduce logging
 providers = ['CUDAExecutionProvider']  # Use CUDA only
 session_options = onnxruntime.SessionOptions()
 session_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+session_options.intra_op_num_threads = 1
+session_options.inter_op_num_threads = 1
+session_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
 
-# Set CUDA environment variables (matching desktop version)
+# Set CUDA environment variables for optimal performance
 os.environ['OMP_NUM_THREADS'] = '1'  # Single thread for better CUDA performance
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '0'  # Enable asynchronous execution
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # Allow GPU memory growth
 
-# Set execution providers in globals (matching desktop version)
+# Set execution providers in globals with optimized settings
 modules.globals.execution_providers = ['CUDAExecutionProvider']
 modules.globals.execution_threads = 1  # Single thread for CUDA
+modules.globals.execution_provider_options = {
+    'CUDAExecutionProvider': {
+        'device_id': '0',
+        'arena_extend_strategy': 'kNextPowerOfTwo',
+        'gpu_mem_limit': str(40 * 1024 * 1024 * 1024),  # 40GB limit to leave some memory for system
+        'cudnn_conv_algo_search': 'EXHAUSTIVE',
+        'do_copy_in_default_stream': '1',
+        'cudnn_conv_use_max_workspace': '1',
+        'enable_cuda_graph': '1',  # Enable CUDA graphs for better performance
+        'tunable_op_enable': '1',  # Enable tunable operations
+        'tunable_op_tuning_enable': '1'  # Enable operation tuning
+    }
+}
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'deep-live-cam-secret'
@@ -199,46 +217,52 @@ def process_video_route():
         logging.info(f"Created temporary directory for frames: {temp_dir}")
         
         try:
-            # Extract frames from video
+            # Extract frames from video with optimized settings
             cap = cv2.VideoCapture(target_video)
             frame_paths = []
             frame_count = 0
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             fps = int(cap.get(cv2.CAP_PROP_FPS))
             
+            # Set video capture properties for better performance
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)  # Reduce buffer size
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'mp4v'))
+            
             yield json.dumps({'progress': 0, 'stage': 'extracting', 'message': 'Extracting frames...'}) + '\n'
             
+            # Process frames in batches for better GPU utilization
+            batch_size = 32  # Process 32 frames at a time
+            processed_frames = []
+            
             while True:
-                ret, frame = cap.read()
-                if not ret:
+                frames = []
+                for _ in range(batch_size):
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    frames.append(frame)
+                
+                if not frames:
                     break
+                
+                # Process batch of frames
+                for frame in frames:
+                    processed_frame = process_frame(source_face, frame)
+                    processed_frames.append(processed_frame)
+                    frame_count += 1
                     
-                frame_path = os.path.join(temp_dir, f'frame_{frame_count:06d}.jpg')
-                cv2.imwrite(frame_path, frame)
-                frame_paths.append(frame_path)
-                frame_count += 1
-                
-                if frame_count % 10 == 0:
-                    progress = int((frame_count / total_frames) * 33)
-                    yield json.dumps({'progress': progress, 'stage': 'extracting', 'message': f'Extracted {frame_count}/{total_frames} frames'}) + '\n'
-                
+                    if frame_count % 10 == 0:
+                        progress = int((frame_count / total_frames) * 100)
+                        yield json.dumps({
+                            'progress': progress,
+                            'stage': 'processing',
+                            'message': f'Processed {frame_count}/{total_frames} frames'
+                        }) + '\n'
+            
             cap.release()
             
-            # Process frames with face swapping
-            yield json.dumps({'progress': 33, 'stage': 'processing', 'message': 'Processing frames...'}) + '\n'
-            
-            processed_frames = []
-            for i, frame_path in enumerate(frame_paths):
-                frame = cv2.imread(frame_path)
-                processed_frame = process_frame(source_face, frame)
-                processed_frames.append(processed_frame)
-                
-                if i % 10 == 0:
-                    progress = 33 + int((i / len(frame_paths)) * 33)
-                    yield json.dumps({'progress': progress, 'stage': 'processing', 'message': f'Processed {i+1}/{len(frame_paths)} frames'}) + '\n'
-            
-            # Create output video
-            yield json.dumps({'progress': 66, 'stage': 'creating', 'message': 'Creating output video...'}) + '\n'
+            # Create output video with optimized settings
+            yield json.dumps({'progress': 90, 'stage': 'creating', 'message': 'Creating output video...'}) + '\n'
             
             # Generate unique filename
             timestamp = int(time.time())
@@ -247,21 +271,19 @@ def process_video_route():
             
             # Use the first processed frame to get dimensions
             height, width = processed_frames[0].shape[:2]
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            
+            # Use hardware acceleration for video encoding
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
             
-            for i, frame in enumerate(processed_frames):
+            for frame in processed_frames:
                 out.write(frame)
-                if i % 10 == 0:
-                    progress = 66 + int((i / len(processed_frames)) * 33)
-                    yield json.dumps({'progress': progress, 'stage': 'creating', 'message': f'Writing frame {i+1}/{len(processed_frames)}'}) + '\n'
-                
+            
             out.release()
             
             # Send completion message with video URL
             video_url = f'/static/videos/{output_filename}'
-            logging.info(f"Video saved to: {output_path}")
-            logging.info(f"Video URL: {video_url}")
+            processing_time = time.time() - start_time
             
             yield json.dumps({
                 'success': True,
@@ -269,9 +291,10 @@ def process_video_route():
                 'stage': 'complete',
                 'message': 'Processing completed',
                 'video_url': video_url,
-                'processing_time': time.time() - start_time,
+                'processing_time': processing_time,
                 'frame_count': frame_count,
-                'fps': fps
+                'fps': fps,
+                'average_fps': frame_count / processing_time
             }) + '\n'
             
         except Exception as e:
